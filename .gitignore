@@ -1,0 +1,44 @@
+# ── Salidas generadas por la app ──────────────────────────────────────────────
+outputs/
+
+# ── Imágenes (cualquier ubicación) ───────────────────────────────────────────
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.tiff
+*.fits
+
+# ── Datos y progreso ──────────────────────────────────────────────────────────
+*.json
+*.parquet
+*.csv
+*.hdf5
+*.h5
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
