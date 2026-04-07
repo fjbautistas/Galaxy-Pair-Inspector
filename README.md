@@ -1,7 +1,7 @@
 # Galaxy Pair Inspector
 
 Visual inspection and classification tool for galaxy pairs from the DESI Legacy Survey DR10.
-Designed for PhD-level research on interacting galaxies, mergers, and false positives in photometric catalogs.
+Designed for research on interacting galaxies, mergers, and false positives in photometric catalogs.
 
 ---
 
@@ -267,6 +267,4 @@ The saved cutouts are suitable as training data for a CNN image classifier:
 
 ## Author
 
-Francisco — PhD student, Astronomy
-Semester 2026-I | Thesis II
-*Galaxy pairs and mergers in the DESI Legacy Survey*
+Frank Bautista
