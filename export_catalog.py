@@ -16,7 +16,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-SHUFFLE_SEED = 42   # semilla fija → orden idéntico en todos los dispositivos
+SHUFFLE_SEED     = 42    # semilla fija → orden idéntico en todos los dispositivos
+CALIBRATION_SIZE = 100   # pares iniciales iguales para todos → inter-rater reliability
 
 # ── Configuración (debe coincidir con pair_inspector_app.py) ──────────────────
 
@@ -112,6 +113,7 @@ def main():
     catalog = {
         'exported_at':         datetime.now().isoformat(),
         'shuffle_seed':        SHUFFLE_SEED,
+        'calibration_size':    CALIBRATION_SIZE,
         'rp_max_kpc':          RP_MAX_KPC,
         'total_pairs':         len(pairs),
         'desktop_classified':  desktop_cl,

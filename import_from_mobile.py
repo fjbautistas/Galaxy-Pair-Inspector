@@ -53,8 +53,10 @@ def main():
         mobile_data = json.load(f)
 
     mobile_entries = mobile_data.get('classifications', [])
+    dev = mobile_data.get('device_id', '—')
     print(f'Archivo móvil: {mobile_path.name}')
-    print(f'  Exportado: {mobile_data.get("exported_at", "—")}')
+    print(f'  Dispositivo:  {dev}')
+    print(f'  Exportado:    {mobile_data.get("exported_at", "—")}')
     print(f'  Clasificaciones en archivo: {len(mobile_entries)}')
 
     # Leer progreso del escritorio

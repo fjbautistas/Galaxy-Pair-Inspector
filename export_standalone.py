@@ -30,7 +30,8 @@ import pandas as pd
 
 # Semilla fija → todos los dispositivos ven el mismo orden aleatorio.
 # Cámbiala solo si quieres generar un orden completamente nuevo.
-SHUFFLE_SEED = 42
+SHUFFLE_SEED     = 42    # orden base idéntico en todos los dispositivos
+CALIBRATION_SIZE = 100   # pares iniciales iguales para todos → inter-rater reliability
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ def build_catalog_dict():
     return {
         'exported_at':        datetime.now().isoformat(),
         'shuffle_seed':       SHUFFLE_SEED,
+        'calibration_size':   CALIBRATION_SIZE,
         'rp_max_kpc':         RP_MAX_KPC,
         'total_pairs':        len(pairs),
         'desktop_classified': desktop_cl,
