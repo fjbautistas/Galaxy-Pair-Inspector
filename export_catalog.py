@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 SHUFFLE_SEED     = 42    # semilla fija → orden idéntico en todos los dispositivos
-CALIBRATION_SIZE = 100   # pares iniciales iguales para todos → inter-rater reliability
+CALIBRATION_SIZE = 25    # pares de calibración (iguales en todos los dispositivos)
 
 # ── Configuración (debe coincidir con pair_inspector_app.py) ──────────────────
 

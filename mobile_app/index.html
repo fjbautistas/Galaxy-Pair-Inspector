@@ -873,14 +873,19 @@
       const calibN    = data.calibration_size   || 100;
 
       // ── Orden personalizado por dispositivo ──────────────────────────
-      // Los primeros calibN pares son iguales para todos (calibración /
-      // inter-rater reliability).  A partir de ahí cada dispositivo
-      // recibe su propio orden aleatorio único → máxima cobertura total.
+      // • Primeros calibN pares: mismos para todos (inter-rater reliability),
+      //   pero en orden distinto por dispositivo → dos personas clasificando
+      //   a la vez no ven el mismo par en el mismo momento.
+      // • Del par calibN+1 en adelante: secuencia única por dispositivo
+      //   → máxima cobertura total del catálogo.
       deviceId = getOrCreateDeviceId();
       const calibration = basePairs.slice(0, calibN);
       const rest        = basePairs.slice(calibN);
       const devSeed     = strToSeed(deviceId);
-      catalog = [...calibration, ...seededShuffle(rest, devSeed)];
+      catalog = [
+        ...seededShuffle(calibration, devSeed),          // mismos 25, orden propio
+        ...seededShuffle(rest,        devSeed ^ 0xA5F3), // pares únicos del resto
+      ];
 
       if (!catalog.length) { showNoCatalog(); return; }
 

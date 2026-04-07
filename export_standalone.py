@@ -31,7 +31,7 @@ import pandas as pd
 # Semilla fija → todos los dispositivos ven el mismo orden aleatorio.
 # Cámbiala solo si quieres generar un orden completamente nuevo.
 SHUFFLE_SEED     = 42    # orden base idéntico en todos los dispositivos
-CALIBRATION_SIZE = 100   # pares iniciales iguales para todos → inter-rater reliability
+CALIBRATION_SIZE = 25    # pares de calibración (iguales en todos los dispositivos)
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
