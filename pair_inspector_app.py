@@ -1,6 +1,5 @@
 """
 pair_inspector_app.py — Clasificador visual de pares de galaxias (escritorio)
-Reemplaza la interfaz Jupyter de GalaxyPairInspector.ipynb.
 """
 
 import json
