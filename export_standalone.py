@@ -20,12 +20,17 @@ Flujo de uso:
 
 import json
 import os
+import random
 import re
 from pathlib import Path
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
+
+# Semilla fija → todos los dispositivos ven el mismo orden aleatorio.
+# Cámbiala solo si quieres generar un orden completamente nuevo.
+SHUFFLE_SEED = 42
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
@@ -101,10 +106,18 @@ def build_catalog_dict():
             entry['z'] = round(float(row[z_col]), 5)
         pairs.append(entry)
 
+    # Orden aleatorio fijo — igual en todos los dispositivos que descarguen
+    # el mismo GalPairs.html. Las primeras N galaxias que clasifique cada
+    # persona son las mismas → overlap natural para inter-rater reliability.
+    random.seed(SHUFFLE_SEED)
+    random.shuffle(pairs)
+    print(f'  Orden aleatorio aplicado (seed={SHUFFLE_SEED})')
+
     desktop_cl = load_desktop_classified(PROGRESS_FILE)
 
     return {
         'exported_at':        datetime.now().isoformat(),
+        'shuffle_seed':       SHUFFLE_SEED,
         'rp_max_kpc':         RP_MAX_KPC,
         'total_pairs':        len(pairs),
         'desktop_classified': desktop_cl,

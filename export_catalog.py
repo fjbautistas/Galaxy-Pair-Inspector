@@ -9,11 +9,14 @@ Genera: mobile_app/catalog.json
 
 import json
 import os
+import random
 from pathlib import Path
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
+
+SHUFFLE_SEED = 42   # semilla fija → orden idéntico en todos los dispositivos
 
 # ── Configuración (debe coincidir con pair_inspector_app.py) ──────────────────
 
@@ -97,6 +100,10 @@ def main():
             entry['z'] = float(row[z_col])
         pairs.append(entry)
 
+    # Orden aleatorio fijo — igual en todos los dispositivos
+    random.seed(SHUFFLE_SEED)
+    random.shuffle(pairs)
+
     # Clasificaciones del escritorio
     desktop_cl = load_desktop_classified(PROGRESS_FILE)
     classified_count = len(desktop_cl)
@@ -104,6 +111,7 @@ def main():
     # Ensamblar JSON
     catalog = {
         'exported_at':         datetime.now().isoformat(),
+        'shuffle_seed':        SHUFFLE_SEED,
         'rp_max_kpc':          RP_MAX_KPC,
         'total_pairs':         len(pairs),
         'desktop_classified':  desktop_cl,
