@@ -494,12 +494,12 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // MARKER DRAWING — overlay canvas avoids CORS taint
+  // MARKER DRAWING — punto pequeño + línea hacia etiqueta (leader line)
   // ═══════════════════════════════════════════════════════════════════════
   function drawMarkers(pair) {
     const wrapper = document.getElementById('imgWrapper');
     const canvas  = document.getElementById('markerCanvas');
-    const sz = wrapper.offsetWidth;                // display size in px
+    const sz = wrapper.offsetWidth;
 
     canvas.width  = sz;
     canvas.height = sz;
@@ -514,54 +514,55 @@
     x1 *= scale; y1 *= scale;
     x2 *= scale; y2 *= scale;
 
-    // Subtle connection line
-    ctx.strokeStyle = 'rgba(200,200,200,0.30)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    // Dirección de la línea: G1 va hacia el lado opuesto de G2 para no solaparse
+    const g1Left = x1 <= x2;
+    const a1 = g1Left ? -Math.PI * 3/4 : -Math.PI / 4;   // arriba-izq o arriba-der
+    const a2 = g1Left ? -Math.PI / 4   : -Math.PI * 3/4;
 
-    const arm = 7 * scale;
-
-    // G1 — red + cross
-    _drawCross(ctx, x1, y1, arm, [255, 90, 90],  false, scale);
-    // G2 — blue × X
-    _drawCross(ctx, x2, y2, arm, [80, 190, 255], true,  scale);
-
-    // Labels
-    ctx.font = `bold ${Math.round(11 * scale)}px 'SF Mono', Menlo, monospace`;
-    ctx.textBaseline = 'bottom';
-    ctx.shadowColor  = 'rgba(0,0,0,0.95)';
-    ctx.shadowBlur   = 5 * scale;
-    ctx.fillStyle    = 'rgba(255,255,50,0.95)';
-    ctx.fillText('G1', x1 + 9 * scale, y1 - 4 * scale);
-    ctx.fillText('G2', x2 + 9 * scale, y2 - 4 * scale);
-    ctx.shadowBlur = 0;
+    _drawLeader(ctx, x1, y1, 'G1', [255, 100, 80],  a1, scale);
+    _drawLeader(ctx, x2, y2, 'G2', [80,  190, 255], a2, scale);
   }
 
-  function _drawCross(ctx, cx, cy, arm, rgb, isX, scale) {
-    const lw = 1.8 * scale;
+  function _drawLeader(ctx, cx, cy, label, rgb, angle, scale) {
     const [r, g, b] = rgb;
+    const lineLen = 22 * scale;
+    const dotR    = 2.5 * scale;
+
+    const lx = cx + Math.cos(angle) * lineLen;
+    const ly = cy + Math.sin(angle) * lineLen;
+
     ctx.lineCap = 'round';
 
-    // Shadow first
-    ctx.lineWidth   = lw + 1.8 * scale;
-    ctx.strokeStyle = 'rgba(0,0,0,0.72)';
-    _strokeArms(ctx, cx, cy, arm, isX, 1);
+    // ── Línea sutil con sombra ────────────────────────────────────────
+    ctx.lineWidth   = 1.5 * scale;
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(lx, ly); ctx.stroke();
 
-    // Colored marker
-    ctx.lineWidth   = lw;
-    ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`;
-    _strokeArms(ctx, cx, cy, arm, isX, 0);
-  }
+    ctx.lineWidth   = 0.9 * scale;
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.8)`;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(lx, ly); ctx.stroke();
 
-  function _strokeArms(ctx, cx, cy, arm, isX, offset) {
-    const o = offset;
-    if (isX) {
-      ctx.beginPath(); ctx.moveTo(cx-arm+o, cy-arm+o); ctx.lineTo(cx+arm+o, cy+arm+o); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx+arm+o, cy-arm+o); ctx.lineTo(cx-arm+o, cy+arm+o); ctx.stroke();
-    } else {
-      ctx.beginPath(); ctx.moveTo(cx-arm+o, cy+o); ctx.lineTo(cx+arm+o, cy+o); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx+o, cy-arm+o); ctx.lineTo(cx+o, cy+arm+o); ctx.stroke();
-    }
+    // ── Punto pequeño en la galaxia ───────────────────────────────────
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur  = 3 * scale;
+    ctx.fillStyle   = `rgba(${r},${g},${b},0.95)`;
+    ctx.beginPath(); ctx.arc(cx, cy, dotR, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur  = 0;
+
+    // ── Etiqueta al final de la línea ─────────────────────────────────
+    ctx.font         = `bold ${Math.round(10 * scale)}px 'SF Mono', Menlo, monospace`;
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor  = 'rgba(0,0,0,0.95)';
+    ctx.shadowBlur   = 4 * scale;
+    ctx.fillStyle    = `rgba(${r},${g},${b},0.95)`;
+
+    // Alinear según dirección: izquierda o derecha del extremo
+    const goesLeft = Math.cos(angle) < 0;
+    ctx.textAlign = goesLeft ? 'right' : 'left';
+    ctx.fillText(label, lx + (goesLeft ? -3 : 3) * scale, ly);
+
+    ctx.shadowBlur = 0;
+    ctx.textAlign  = 'left';
   }
 
   // ═══════════════════════════════════════════════════════════════════════
