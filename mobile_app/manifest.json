@@ -1,0 +1,11 @@
+{
+  "name": "Galaxy Pair Inspector",
+  "short_name": "GalPairs",
+  "description": "Clasificador visual de pares de galaxias DESI DR10",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1a1a1a",
+  "background_color": "#1a1a1a",
+  "icons": []
+}

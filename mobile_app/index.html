@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GalPairs">
+  <link rel="manifest" href="manifest.json">
+  <title>Galaxy Pair Inspector</title>
+  <style>
+    :root {
+      --bg:          #1a1a1a;
+      --card:        #242424;
+      --border:      #363636;
+      --text:        #e0e0e0;
+      --muted:       #888;
+      --fp-bg:       #5a1010;  --fp-border:   #e53935;
+      --pair-bg:     #0f4020;  --pair-border: #43a047;
+      --pm-bg:       #4a3000;  --pm-border:   #fb8c00;
+      --safe-top:    env(safe-area-inset-top,    0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding-top: var(--safe-top);
+      padding-bottom: var(--safe-bottom);
+    }
+
+    /* ── HEADER ──────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #202020;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .hdr-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      white-space: nowrap;
+    }
+    .hdr-counter {
+      flex: 1;
+      text-align: center;
+      font-size: 14px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .hdr-btn {
+      background: #333;
+      border: 1px solid #454545;
+      color: var(--text);
+      padding: 7px 13px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* ── PROGRESS BAR ────────────────────────── */
+    .prog-wrap { height: 3px; background: #2a2a2a; flex-shrink: 0; }
+    .prog-fill  {
+      height: 100%;
+      background: linear-gradient(90deg, #4caf50, #66bb6a);
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+
+    /* ── IMAGE AREA ──────────────────────────── */
+    .img-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 16px 6px;
+      min-height: 0;
+    }
+    .img-wrapper {
+      position: relative;
+      width: min(100%, 320px);
+      aspect-ratio: 1;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #111;
+      cursor: pointer;
+      transition: box-shadow 0.2s;
+      flex-shrink: 0;
+    }
+    .img-wrapper.cl-fp   { box-shadow: 0 0 0 3px var(--fp-border); }
+    .img-wrapper.cl-pair { box-shadow: 0 0 0 3px var(--pair-border); }
+    .img-wrapper.cl-pm   { box-shadow: 0 0 0 3px var(--pm-border); }
+
+    #galaxyImg {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+      transition: opacity 0.2s;
+    }
+    #markerCanvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .spinner-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #111;
+    }
+    .spinner {
+      width: 38px; height: 38px;
+      border: 3px solid #2a2a2a;
+      border-top-color: #666;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .err-state {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 8px;
+      color: #888; font-size: 13px; text-align: center; padding: 20px;
+    }
+    .err-state .err-icon { font-size: 30px; }
+    .retry-btn {
+      margin-top: 6px; padding: 8px 18px;
+      background: #2e2e2e; border: 1px solid #555;
+      color: #aaa; border-radius: 8px; font-size: 13px; cursor: pointer;
+    }
+
+    /* ── PAIR INFO ───────────────────────────── */
+    .pair-info {
+      width: min(100%, 320px);
+      margin-top: 9px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .info-row { display: flex; justify-content: space-between; gap: 8px; }
+    .pair-info strong { color: #c0c0c0; }
+    .cl-badge {
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* ── CLASSIFICATION BUTTONS ──────────────── */
+    .cl-section { padding: 6px 14px 5px; flex-shrink: 0; }
+    .cl-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 9px;
+    }
+    .btn-cl {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 11px 4px;
+      border: 2px solid #424242;
+      border-radius: 13px;
+      background: #272727;
+      color: #aaa;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      gap: 3px; min-height: 66px;
+      user-select: none;
+    }
+    .btn-cl .ic   { font-size: 20px; line-height: 1; }
+    .btn-cl .lbl  { font-size: 10px; color: #666; font-weight: 400; }
+    .btn-cl.a-fp   { background: var(--fp-bg);   border-color: var(--fp-border);   color: #fff; }
+    .btn-cl.a-fp   .lbl { color: #ffaaaa; }
+    .btn-cl.a-pair { background: var(--pair-bg); border-color: var(--pair-border); color: #fff; }
+    .btn-cl.a-pair .lbl { color: #aaffaa; }
+    .btn-cl.a-pm   { background: var(--pm-bg);   border-color: var(--pm-border);   color: #fff; }
+    .btn-cl.a-pm   .lbl { color: #ffddaa; }
+
+    /* ── NAVIGATION ──────────────────────────── */
+    .nav-section { padding: 4px 14px 8px; flex-shrink: 0; }
+    .nav-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 9px; margin-bottom: 8px;
+    }
+    .btn-nav {
+      padding: 12px;
+      border: 1px solid #3a3a3a;
+      border-radius: 11px;
+      background: #232323;
+      color: #aaa; font-size: 15px;
+      cursor: pointer; user-select: none;
+    }
+    .btn-skip {
+      width: 100%; padding: 10px;
+      border: 1px solid #303050;
+      border-radius: 11px;
+      background: #1e2030;
+      color: #88aadd; font-size: 13px;
+      cursor: pointer; text-align: center;
+    }
+
+    /* ── MODALS (bottom sheet) ───────────────── */
+    .modal-back {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      display: flex; align-items: flex-end;
+      z-index: 100;
+      padding-bottom: var(--safe-bottom);
+    }
+    .modal-back.hidden { display: none; }
+    .modal-sheet {
+      width: 100%; background: #222;
+      border-radius: 18px 18px 0 0;
+      padding: 20px 20px 24px;
+      border-top: 1px solid #333;
+    }
+    .modal-handle {
+      width: 38px; height: 4px; background: #444;
+      border-radius: 2px; margin: 0 auto 18px;
+    }
+    .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+
+    .stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px; margin-bottom: 14px;
+    }
+    .stat-card {
+      background: #2a2a2a; border-radius: 11px;
+      padding: 14px 6px; text-align: center;
+    }
+    .stat-num  { font-size: 26px; font-weight: 700; }
+    .stat-lbl  { font-size: 11px; color: #777; margin-top: 2px; }
+    .c-fp   .stat-num { color: #e57373; }
+    .c-pair .stat-num { color: #66bb6a; }
+    .c-pm   .stat-num { color: #ffa726; }
+
+    .mbtn {
+      width: 100%; padding: 14px;
+      border-radius: 13px; border: none;
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; margin-top: 8px;
+    }
+    .mbtn-primary   { background: #2a4a80; color: #fff; }
+    .mbtn-secondary { background: #2a2a2a; color: #aaa; }
+
+    /* ── NO CATALOG SCREEN ───────────────────── */
+    #noCatalog {
+      flex: 1; display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 28px; text-align: center; color: var(--muted);
+    }
+    #noCatalog h2 { color: var(--text); margin: 12px 0 8px; font-size: 20px; }
+    #noCatalog p  { font-size: 14px; line-height: 1.6; }
+    .code-blk {
+      width: 100%; margin: 12px 0;
+      background: #111; border: 1px solid #333; border-radius: 9px;
+      padding: 12px 14px;
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 12px; color: #7ec8e3;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="hdr-title">🌌 GalPairs</div>
+    <div class="hdr-counter" id="ctrText">— / —</div>
+    <button class="hdr-btn" onclick="openModal('stats')" title="Estadísticas">📊</button>
+    <button class="hdr-btn" onclick="openModal('export')" title="Exportar">⬆︎</button>
+  </header>
+
+  <!-- PROGRESS BAR -->
+  <div class="prog-wrap"><div class="prog-fill" id="progFill"></div></div>
+
+  <!-- MAIN CONTENT -->
+  <div id="mainContent" style="display:contents">
+
+    <!-- Image Area -->
+    <div class="img-area">
+      <div class="img-wrapper" id="imgWrapper">
+        <img id="galaxyImg" alt="">
+        <canvas id="markerCanvas"></canvas>
+        <div class="spinner-overlay" id="spinnerOverlay">
+          <div class="spinner" id="spinner"></div>
+        </div>
+      </div>
+      <div class="pair-info" id="pairInfo"></div>
+    </div>
+
+    <!-- Classification Buttons -->
+    <div class="cl-section">
+      <div class="cl-grid">
+        <button class="btn-cl" id="btnFP" onclick="classify('FP')">
+          <span class="ic">❌</span>
+          <span>Falso Pos.</span>
+          <span class="lbl">FP</span>
+        </button>
+        <button class="btn-cl" id="btnPair" onclick="classify('Pair')">
+          <span class="ic">✅</span>
+          <span>Par</span>
+          <span class="lbl">Pair</span>
+        </button>
+        <button class="btn-cl" id="btnPM" onclick="classify('PM')">
+          <span class="ic">🌀</span>
+          <span>Merger</span>
+          <span class="lbl">PM</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="nav-section">
+      <div class="nav-grid">
+        <button class="btn-nav" onclick="navigate(-1)">← Anterior</button>
+        <button class="btn-nav" onclick="navigate(1)">Siguiente →</button>
+      </div>
+      <button class="btn-skip" onclick="skipToUnclassified()">
+        ⏭&nbsp; Saltar al siguiente sin clasificar
+      </button>
+    </div>
+
+  </div><!-- /mainContent -->
+
+  <!-- NO CATALOG SCREEN -->
+  <div id="noCatalog">
+    <div style="font-size:52px">📂</div>
+    <h2>Catálogo no encontrado</h2>
+    <p>Ejecuta el script de exportación en tu Mac:</p>
+    <div class="code-blk">python export_catalog.py</div>
+    <p>Luego inicia el servidor local:</p>
+    <div class="code-blk">python serve_mobile.py</div>
+    <p style="margin-top:12px;font-size:13px">
+      Abre en Safari desde tu iPhone:<br>
+      <strong>http://&lt;IP-de-tu-Mac&gt;:8080</strong>
+    </p>
+    <p style="margin-top:16px;font-size:12px;color:#555">
+      Tip: agrega la página al inicio (Compartir → Añadir a pantalla de inicio)
+      para usarla como app nativa.
+    </p>
+  </div>
+
+  <!-- STATS MODAL -->
+  <div class="modal-back hidden" id="statsModal" onclick="closeModal('stats')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Progreso de clasificación</div>
+      <div class="stats-grid">
+        <div class="stat-card c-fp">
+          <div class="stat-num" id="sFP">0</div>
+          <div class="stat-lbl">Falsos Pos.</div>
+        </div>
+        <div class="stat-card c-pair">
+          <div class="stat-num" id="sPair">0</div>
+          <div class="stat-lbl">Pares</div>
+        </div>
+        <div class="stat-card c-pm">
+          <div class="stat-num" id="sPM">0</div>
+          <div class="stat-lbl">Mergers</div>
+        </div>
+      </div>
+      <div id="sTotal" style="color:#777;font-size:13px;text-align:center;margin-bottom:16px"></div>
+      <button class="mbtn mbtn-secondary" onclick="closeModal('stats')">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- EXPORT MODAL -->
+  <div class="modal-back hidden" id="exportModal" onclick="closeModal('export')">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Exportar clasificaciones</div>
+      <p style="font-size:13px;color:#888;margin-bottom:14px;line-height:1.55">
+        Descarga el JSON y envíalo a tu Mac (AirDrop, iCloud, etc.).
+        Luego importa al sistema principal con:
+      </p>
+      <div class="code-blk">python import_from_mobile.py &lt;archivo.json&gt;</div>
+      <div id="expStats" style="font-size:13px;color:#aaa;margin:12px 0"></div>
+      <button class="mbtn mbtn-primary"     onclick="doExport()">⬇&nbsp; Descargar JSON</button>
+      <button class="mbtn mbtn-secondary"   onclick="closeModal('export')">Cancelar</button>
+    </div>
+  </div>
+
+  <script>
+  // ═══════════════════════════════════════════════════════════════════════
+  // CONSTANTS — match desktop app
+  // ═══════════════════════════════════════════════════════════════════════
+  const LS_LAYER       = 'ls-dr10';
+  const IMG_SIZE       = 256;
+  const PADDING_FACTOR = 2.5;
+  const STORAGE_KEY    = 'galaxyPairsInspector_v2';
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════════════════════════════════
+  let catalog          = [];     // array of pair objects
+  let classifications  = {};     // id_par(str) → 'FP'|'Pair'|'PM'  (mobile)
+  let desktopCl        = {};     // id_par(str) → classification  (from desktop)
+  let currentIndex     = 0;
+  let autoAdvanceTimer = null;
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MATH — identical to Python desktop
+  // ═══════════════════════════════════════════════════════════════════════
+  function adaptivePixscale(sepArcsec) {
+    return Math.max(0.3, Math.min(2.0, (sepArcsec * PADDING_FACTOR) / IMG_SIZE));
+  }
+
+  function radecToPixel(ra, dec, raMid, decMid, pixscale) {
+    const cosDec  = Math.cos(decMid * Math.PI / 180);
+    const dxArcsc = (raMid - ra)  * cosDec * 3600;
+    const dyArcsc = (dec - decMid) * 3600;
+    return [
+      IMG_SIZE / 2 + dxArcsc / pixscale,
+      IMG_SIZE / 2 - dyArcsc / pixscale
+    ];
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // URLS
+  // ═══════════════════════════════════════════════════════════════════════
+  function legacyUrl(pair, bust = false) {
+    const ps = adaptivePixscale(pair.sep_arcsec).toFixed(4);
+    let url = `https://www.legacysurvey.org/viewer/cutout.jpg` +
+              `?ra=${pair.ra_mid.toFixed(6)}&dec=${pair.dec_mid.toFixed(6)}` +
+              `&pixscale=${ps}&layer=${LS_LAYER}&size=${IMG_SIZE}`;
+    if (bust) url += `&_t=${Date.now()}`;
+    return url;
+  }
+
+  function skyViewerUrl(pair) {
+    const s = pair.sep_arcsec;
+    const z = s < 5 ? 16 : s < 15 ? 15 : s < 40 ? 14 : 13;
+    return `https://www.legacysurvey.org/viewer` +
+           `?ra=${pair.ra_mid.toFixed(6)}&dec=${pair.dec_mid.toFixed(6)}` +
+           `&layer=${LS_LAYER}&zoom=${z}`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MARKER DRAWING — overlay canvas avoids CORS taint
+  // ═══════════════════════════════════════════════════════════════════════
+  function drawMarkers(pair) {
+    const wrapper = document.getElementById('imgWrapper');
+    const canvas  = document.getElementById('markerCanvas');
+    const sz = wrapper.offsetWidth;                // display size in px
+
+    canvas.width  = sz;
+    canvas.height = sz;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, sz, sz);
+
+    const ps    = adaptivePixscale(pair.sep_arcsec);
+    const scale = sz / IMG_SIZE;
+
+    let [x1, y1] = radecToPixel(pair.ra1, pair.dec1, pair.ra_mid, pair.dec_mid, ps);
+    let [x2, y2] = radecToPixel(pair.ra2, pair.dec2, pair.ra_mid, pair.dec_mid, ps);
+    x1 *= scale; y1 *= scale;
+    x2 *= scale; y2 *= scale;
+
+    // Subtle connection line
+    ctx.strokeStyle = 'rgba(200,200,200,0.30)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+
+    const arm = 7 * scale;
+
+    // G1 — red + cross
+    _drawCross(ctx, x1, y1, arm, [255, 90, 90],  false, scale);
+    // G2 — blue × X
+    _drawCross(ctx, x2, y2, arm, [80, 190, 255], true,  scale);
+
+    // Labels
+    ctx.font = `bold ${Math.round(11 * scale)}px 'SF Mono', Menlo, monospace`;
+    ctx.textBaseline = 'bottom';
+    ctx.shadowColor  = 'rgba(0,0,0,0.95)';
+    ctx.shadowBlur   = 5 * scale;
+    ctx.fillStyle    = 'rgba(255,255,50,0.95)';
+    ctx.fillText('G1', x1 + 9 * scale, y1 - 4 * scale);
+    ctx.fillText('G2', x2 + 9 * scale, y2 - 4 * scale);
+    ctx.shadowBlur = 0;
+  }
+
+  function _drawCross(ctx, cx, cy, arm, rgb, isX, scale) {
+    const lw = 1.8 * scale;
+    const [r, g, b] = rgb;
+    ctx.lineCap = 'round';
+
+    // Shadow first
+    ctx.lineWidth   = lw + 1.8 * scale;
+    ctx.strokeStyle = 'rgba(0,0,0,0.72)';
+    _strokeArms(ctx, cx, cy, arm, isX, 1);
+
+    // Colored marker
+    ctx.lineWidth   = lw;
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`;
+    _strokeArms(ctx, cx, cy, arm, isX, 0);
+  }
+
+  function _strokeArms(ctx, cx, cy, arm, isX, offset) {
+    const o = offset;
+    if (isX) {
+      ctx.beginPath(); ctx.moveTo(cx-arm+o, cy-arm+o); ctx.lineTo(cx+arm+o, cy+arm+o); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx+arm+o, cy-arm+o); ctx.lineTo(cx-arm+o, cy+arm+o); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(cx-arm+o, cy+o); ctx.lineTo(cx+arm+o, cy+o); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx+o, cy-arm+o); ctx.lineTo(cx+o, cy+arm+o); ctx.stroke();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // SHOW PAIR — main display function
+  // ═══════════════════════════════════════════════════════════════════════
+  function showPair(idx) {
+    if (!catalog.length || idx < 0 || idx >= catalog.length) return;
+    currentIndex = idx;
+
+    const pair = catalog[idx];
+    const id   = String(pair.id_par);
+    const cl   = classifications[id] || desktopCl[id] || null;
+
+    // Header counter
+    document.getElementById('ctrText').textContent = `${idx + 1} / ${catalog.length}`;
+
+    // Progress bar
+    const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]).size;
+    document.getElementById('progFill').style.width = `${(done / catalog.length * 100).toFixed(2)}%`;
+
+    // Reset spinner
+    const overlay = document.getElementById('spinnerOverlay');
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="spinner"></div>';
+
+    const img = document.getElementById('galaxyImg');
+    img.style.opacity = '0';
+
+    // Clear markers
+    const canvas = document.getElementById('markerCanvas');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+    img.onload = () => {
+      overlay.style.display = 'none';
+      img.style.opacity = '1';
+      drawMarkers(pair);
+      _applyBorder(cl);
+    };
+
+    img.onerror = () => {
+      overlay.style.display = 'flex';
+      overlay.innerHTML = `
+        <div class="err-state">
+          <div class="err-icon">⚠️</div>
+          <div>Error descargando imagen</div>
+          <button class="retry-btn" onclick="retryImage()">↻ Reintentar</button>
+        </div>`;
+    };
+
+    img.src = legacyUrl(pair);
+
+    // Pair info
+    _renderInfo(pair, cl, id);
+
+    // Button states
+    _updateButtons(cl);
+
+    saveState();
+  }
+
+  function _applyBorder(cl) {
+    const w = document.getElementById('imgWrapper');
+    w.className = 'img-wrapper';
+    if (cl === 'FP')   w.classList.add('cl-fp');
+    if (cl === 'Pair') w.classList.add('cl-pair');
+    if (cl === 'PM')   w.classList.add('cl-pm');
+  }
+
+  function _renderInfo(pair, cl, id) {
+    const rp  = pair.rp   !== undefined ? `${pair.rp.toFixed(1)} kpc` : '—';
+    const z   = pair.z    !== undefined ? pair.z.toFixed(3)           : '—';
+    const sep = pair.sep_arcsec !== undefined ? `${pair.sep_arcsec.toFixed(1)}"` : '—';
+
+    let badge = '';
+    if (cl) {
+      const color = cl === 'FP' ? '#ef9a9a' : cl === 'Pair' ? '#a5d6a7' : '#ffcc80';
+      const label = cl === 'FP' ? 'Falso Positivo' : cl === 'Pair' ? 'Par Confirmado' : 'Possible Merger';
+      const src   = desktopCl[id] && !classifications[id] ? ' <span style="color:#666">(escritorio)</span>' : '';
+      badge = `<div class="cl-badge" style="color:${color}">✓ ${label}${src}</div>`;
+    }
+
+    document.getElementById('pairInfo').innerHTML = `
+      <div class="info-row">
+        <span>ID: <strong>${pair.id_par}</strong></span>
+        <span>rp: <strong>${rp}</strong></span>
+        <span>z: <strong>${z}</strong></span>
+      </div>
+      <div class="info-row" style="margin-top:4px;font-size:11px">
+        <span>G1: ${pair.ra1.toFixed(4)}°, ${pair.dec1.toFixed(4)}°</span>
+        <span>G2: ${pair.ra2.toFixed(4)}°, ${pair.dec2.toFixed(4)}°</span>
+      </div>
+      <div class="info-row" style="margin-top:2px;font-size:11px">
+        <span>sep: ${sep}</span>
+        <span style="color:#555">doble toque → Sky Viewer</span>
+      </div>
+      ${badge}
+    `;
+  }
+
+  function _updateButtons(cl) {
+    document.getElementById('btnFP').className   = 'btn-cl' + (cl === 'FP'   ? ' a-fp'   : '');
+    document.getElementById('btnPair').className = 'btn-cl' + (cl === 'Pair' ? ' a-pair' : '');
+    document.getElementById('btnPM').className   = 'btn-cl' + (cl === 'PM'   ? ' a-pm'   : '');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CLASSIFY
+  // ═══════════════════════════════════════════════════════════════════════
+  function classify(type) {
+    if (!catalog.length) return;
+    if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
+
+    const pair = catalog[currentIndex];
+    const id   = String(pair.id_par);
+
+    if (classifications[id] === type) {
+      delete classifications[id];               // deselect (toggle off)
+    } else {
+      classifications[id] = type;
+      autoAdvanceTimer = setTimeout(() => navigate(1), 650);
+    }
+
+    const newCl = classifications[id] || desktopCl[id] || null;
+    _updateButtons(newCl);
+    _applyBorder(newCl);
+    _renderInfo(pair, newCl, id);
+
+    // Refresh progress
+    const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]).size;
+    document.getElementById('progFill').style.width = `${(done / catalog.length * 100).toFixed(2)}%`;
+
+    saveState();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // NAVIGATION
+  // ═══════════════════════════════════════════════════════════════════════
+  function navigate(dir) {
+    let next = currentIndex + dir;
+    next = Math.max(0, Math.min(catalog.length - 1, next));
+    showPair(next);
+  }
+
+  function skipToUnclassified() {
+    if (!catalog.length) return;
+    const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
+    for (let i = 1; i <= catalog.length; i++) {
+      const idx = (currentIndex + i) % catalog.length;
+      if (!done.has(String(catalog[idx].id_par))) {
+        showPair(idx);
+        return;
+      }
+    }
+    alert('¡Todos los pares del catálogo han sido clasificados! 🎉');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // SKY VIEWER & RETRY
+  // ═══════════════════════════════════════════════════════════════════════
+  function openSkyViewer() {
+    if (!catalog.length) return;
+    window.open(skyViewerUrl(catalog[currentIndex]), '_blank');
+  }
+
+  function retryImage() {
+    const overlay = document.getElementById('spinnerOverlay');
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="spinner"></div>';
+    const img = document.getElementById('galaxyImg');
+    const pair = catalog[currentIndex];
+    img.src = legacyUrl(pair, true);   // cache-bust
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // TOUCH GESTURES — swipe horizontal + doble toque en imagen → Sky Viewer
+  // ═══════════════════════════════════════════════════════════════════════
+  let _tx = 0, _ty = 0, _lastTap = 0;
+
+  document.addEventListener('touchstart', e => {
+    _tx = e.touches[0].clientX;
+    _ty = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    const dx  = e.changedTouches[0].clientX - _tx;
+    const dy  = e.changedTouches[0].clientY - _ty;
+    const now = Date.now();
+
+    // ── Doble toque sobre la imagen → Sky Viewer ──────────────────────
+    const wrapper = document.getElementById('imgWrapper');
+    if (wrapper.contains(e.target) && Math.abs(dx) < 15 && Math.abs(dy) < 15) {
+      if (now - _lastTap < 320) {
+        e.preventDefault();
+        openSkyViewer();
+        _lastTap = 0;   // reset para no triple-disparar
+        return;
+      }
+      _lastTap = now;
+      return;
+    }
+
+    // ── Swipe horizontal para navegar ─────────────────────────────────
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+      navigate(dx < 0 ? 1 : -1);
+    }
+  }, { passive: false });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PERSISTENCE (localStorage)
+  // ═══════════════════════════════════════════════════════════════════════
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        currentIndex,
+        classifications,
+        savedAt: new Date().toISOString()
+      }));
+    } catch(e) {}
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const st = JSON.parse(raw);
+      currentIndex    = st.currentIndex    || 0;
+      classifications = st.classifications || {};
+    } catch(e) {}
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MODALS
+  // ═══════════════════════════════════════════════════════════════════════
+  function openModal(name) {
+    if (name === 'stats') {
+      const count = cl => Object.values(classifications).filter(v => v === cl).length
+                        + Object.values(desktopCl).filter(v => v === cl).length;
+      const fp = count('FP'), pair = count('Pair'), pm = count('PM');
+      const total = fp + pair + pm;
+      const pct   = catalog.length ? (total / catalog.length * 100).toFixed(1) : 0;
+      const mob   = Object.keys(classifications).length;
+      document.getElementById('sFP').textContent   = fp;
+      document.getElementById('sPair').textContent = pair;
+      document.getElementById('sPM').textContent   = pm;
+      document.getElementById('sTotal').textContent =
+        `Total: ${total} / ${catalog.length} (${pct}%) — desde móvil: ${mob}`;
+    }
+    if (name === 'export') {
+      const n = Object.keys(classifications).length;
+      document.getElementById('expStats').textContent =
+        `${n} clasificaciones nuevas desde este dispositivo.`;
+    }
+    document.getElementById(`${name}Modal`).classList.remove('hidden');
+  }
+
+  function closeModal(name) {
+    document.getElementById(`${name}Modal`).classList.add('hidden');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // EXPORT
+  // ═══════════════════════════════════════════════════════════════════════
+  function doExport() {
+    const entries = Object.entries(classifications).map(([id, cl]) => ({
+      id_par: parseInt(id, 10),
+      classification: cl
+    }));
+    const payload = {
+      exported_at: new Date().toISOString(),
+      source: 'mobile_pwa',
+      total_classified: entries.length,
+      classifications: entries
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `mobile_cl_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    closeModal('export');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // INIT
+  // ═══════════════════════════════════════════════════════════════════════
+  async function init() {
+    loadState();
+
+    try {
+      // Modo standalone: datos embebidos directamente en el HTML
+      // Modo servidor:   carga catalog.json desde el servidor local
+      let data;
+      if (window._CATALOG) {
+        data = window._CATALOG;
+      } else {
+        const resp = await fetch('catalog.json');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        data = await resp.json();
+      }
+
+      catalog   = data.pairs || [];
+      desktopCl = data.desktop_classified || {};
+
+      if (!catalog.length) { showNoCatalog(); return; }
+
+      // Clamp saved index
+      if (currentIndex >= catalog.length) currentIndex = 0;
+      showPair(currentIndex);
+
+    } catch(err) {
+      console.error('Catalog load error:', err);
+      showNoCatalog();
+    }
+  }
+
+  function showNoCatalog() {
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('noCatalog').style.display   = 'flex';
+  }
+
+  init();
+  </script>
+</body>
+</html>
