@@ -391,6 +391,10 @@
       <div class="code-blk">python import_from_mobile.py &lt;archivo.json&gt;</div>
       <div id="expStats" style="font-size:13px;color:#aaa;margin:12px 0"></div>
       <button class="mbtn mbtn-primary"     onclick="doExport()">⬇&nbsp; Descargar JSON</button>
+      <button class="mbtn" id="syncBtn"
+              style="background:#1a5c3a;color:#fff;"
+              onclick="syncToCloud()">☁&nbsp; Sincronizar con la nube</button>
+      <div id="syncStatus" style="font-size:13px;margin:6px 0;min-height:18px"></div>
       <button class="mbtn mbtn-secondary"   onclick="closeModal('export')">Cancelar</button>
     </div>
   </div>
@@ -844,6 +848,64 @@
         exported_at:    new Date().toISOString()
       }])
     }).catch(() => {});               // silencioso — localStorage es el respaldo
+  }
+
+  async function syncToCloud() {
+    const url = window._SUPABASE_URL;
+    const key = window._SUPABASE_ANON_KEY;
+    const statusEl = document.getElementById('syncStatus');
+    const btn      = document.getElementById('syncBtn');
+
+    if (!url || !key) {
+      statusEl.style.color = '#ef9a9a';
+      statusEl.textContent = '✗ Sin conexión configurada (regenera el HTML).';
+      return;
+    }
+
+    const entries = Object.entries(classifications);
+    if (!entries.length) {
+      statusEl.style.color = '#aaa';
+      statusEl.textContent = 'Sin clasificaciones locales que sincronizar.';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.style.color = '#aaa';
+    statusEl.textContent = `Enviando ${entries.length} clasificaciones…`;
+
+    const rows = entries.map(([id, cl]) => ({
+      device_id:      deviceId,
+      id_par:         parseInt(id, 10),
+      classification: cl,
+      exported_at:    new Date().toISOString()
+    }));
+
+    try {
+      const resp = await fetch(`${url}/rest/v1/clasificaciones`, {
+        method:  'POST',
+        headers: {
+          'apikey':        key,
+          'Authorization': `Bearer ${key}`,
+          'Content-Type':  'application/json',
+          'Prefer':        'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify(rows)
+      });
+
+      if (resp.ok || resp.status === 201 || resp.status === 204) {
+        statusEl.style.color = '#a5d6a7';
+        statusEl.textContent = `✓ ${entries.length} clasificaciones sincronizadas.`;
+      } else {
+        const txt = await resp.text();
+        statusEl.style.color = '#ef9a9a';
+        statusEl.textContent = `✗ Error ${resp.status}: ${txt.slice(0, 80)}`;
+      }
+    } catch (err) {
+      statusEl.style.color = '#ef9a9a';
+      statusEl.textContent = `✗ Sin conexión: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function scheduleCloudSave(idPar, classification) {
