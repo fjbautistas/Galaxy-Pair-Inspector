@@ -1,5 +1,5 @@
 """
-pair_inspector_app.py — Clasificador visual de pares de galaxias (escritorio)
+pair_inspector_app.py — Desktop visual classifier for galaxy pairs.
 """
 
 import json
@@ -18,6 +18,51 @@ import numpy as np
 import pandas as pd
 import requests
 from PIL import Image, ImageDraw, ImageTk
+
+# ── Supabase (auto-save on every classification) ──────────────────────────────
+def _load_env(path='.env'):
+    env = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    env[k.strip()] = v.strip()
+    except FileNotFoundError:
+        pass
+    return env
+
+_env             = _load_env()
+_SUPA_URL        = _env.get('SUPABASE_URL', '').rstrip('/')
+_SUPA_ANON_KEY   = _env.get('SUPABASE_ANON_KEY', '')
+DESKTOP_DEVICE_ID = 'DESKTOP'
+
+def _supabase_upsert(id_par: int, classification: str):
+    """Upserts a single classification to Supabase in a background thread."""
+    if not _SUPA_URL or not _SUPA_ANON_KEY:
+        return
+    def _do():
+        try:
+            requests.post(
+                f'{_SUPA_URL}/rest/v1/clasificaciones',
+                headers={
+                    'apikey':        _SUPA_ANON_KEY,
+                    'Authorization': f'Bearer {_SUPA_ANON_KEY}',
+                    'Content-Type':  'application/json',
+                    'Prefer':        'resolution=merge-duplicates,return=minimal',
+                },
+                json=[{
+                    'device_id':      DESKTOP_DEVICE_ID,
+                    'id_par':         id_par,
+                    'classification': classification,
+                    'exported_at':    datetime.now().isoformat(),
+                }],
+                timeout=10,
+            )
+        except Exception:
+            pass   # silent — progress.json is always the primary backup
+    threading.Thread(target=_do, daemon=True).start()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN — mismo estilo que el notebook
@@ -1032,8 +1077,14 @@ class PairInspectorApp:
         # Refrescar estado visual de la celda
         cell._update_btn_state(self.v)
         self._update_status_bar()
-        # Auto-guardar en cada clasificación para no perder datos si la app se cierra
+        # Auto-save locally on every classification
         self.v.save_progress()
+        # Auto-save to Supabase in background
+        id_par = int(row.get('id_par', 0))
+        if id_par:
+            if   self.v.is_false_positive(row):   _supabase_upsert(id_par, 'FP')
+            elif self.v.is_confirmed_pair(row):    _supabase_upsert(id_par, 'Pair')
+            elif self.v.is_possible_merger(row):   _supabase_upsert(id_par, 'PM')
 
     # ── Reintento de página completa y por celda ──────────────────────────────
 
@@ -1239,8 +1290,14 @@ class PairInspectorApp:
                     self.v.unmark_false_positive(row_data)
                     self.v.unmark_confirmed_pair(row_data)
             self.v.save_progress()
+            # Auto-save to Supabase in background
+            _id = int(row_data.get('id_par', 0))
+            if _id:
+                if   self.v.is_false_positive(row_data):  _supabase_upsert(_id, 'FP')
+                elif self.v.is_confirmed_pair(row_data):   _supabase_upsert(_id, 'Pair')
+                elif self.v.is_possible_merger(row_data):  _supabase_upsert(_id, 'PM')
             _refresh_state()
-            self._update_status_bar()   # actualizar contadores ventana principal
+            self._update_status_bar()
 
         btn_f = tk.Button(bf, text='[F] False pos.', font=bfont,
                           bg=BTN_GRAY, fg='#dddddd', activebackground='#606060',
