@@ -523,14 +523,14 @@ class PairCell:
         btn_frame.pack(pady=5)
 
         bfont = ('Arial', 11, 'bold')
-        self.btn_f = tk.Button(btn_frame, text='[F] Falso pos.',
+        self.btn_f = tk.Button(btn_frame, text='[F] False pos.',
                                font=bfont, bg=BTN_GRAY, fg='#dddddd',
                                activebackground='#606060', relief='flat',
                                cursor='hand2', padx=8, pady=4,
                                command=lambda: self.on_classify(self.index, 'F'))
         self.btn_f.pack(side='left', padx=4)
 
-        self.btn_p = tk.Button(btn_frame, text='[P] Par',
+        self.btn_p = tk.Button(btn_frame, text='[P] Pair',
                                font=bfont, bg=BTN_GRAY, fg='#dddddd',
                                activebackground='#606060', relief='flat',
                                cursor='hand2', padx=8, pady=4,
@@ -546,7 +546,7 @@ class PairCell:
 
         # Botón de reintento — solo visible cuando la descarga falló
         self.btn_retry_img = tk.Button(
-            self.frame, text='🔄  Reintentar descarga',
+            self.frame, text='🔄  Retry download',
             font=('Arial', 10), bg='#3a2000', fg='#ffaa44',
             activebackground='#704000', relief='flat', cursor='hand2',
             padx=8, pady=3,
@@ -579,7 +579,7 @@ class PairCell:
         menu.add_command(label='[M]  Merger',
                          command=lambda: self.on_classify(self.index, 'M'))
         menu.add_separator()
-        menu.add_command(label='🔭  Abrir en Sky Viewer',
+        menu.add_command(label='🔭  Open in Sky Viewer',
                          command=self._open_skyviewer)
         menu.tk_popup(event.x_root, event.y_root)
 
@@ -626,10 +626,10 @@ class PairCell:
         # Solo cambia el texto (✓) y el relieve — el color gris se mantiene siempre
         self.btn_f.config(
             relief='groove' if is_fp  else 'flat',
-            text='[F] Falso pos. ✓' if is_fp  else '[F] Falso pos.')
+            text='[F] False pos. ✓' if is_fp  else '[F] False pos.')
         self.btn_p.config(
             relief='groove' if is_par else 'flat',
-            text='[P] Par ✓'        if is_par else '[P] Par')
+            text='[P] Pair ✓'        if is_par else '[P] Pair')
         self.btn_m.config(
             relief='groove' if is_pm  else 'flat',
             text='[M] Merger ✓'     if is_pm  else '[M] Merger')
@@ -667,8 +667,8 @@ class PairCell:
         self.canvas.config(bg=BG_DEFAULT)
         self._coord_var.set('')
         self.btn_retry_img.pack_forget()
-        self.btn_f.config(bg=BTN_GRAY, relief='flat', text='[F] Falso pos.')
-        self.btn_p.config(bg=BTN_GRAY, relief='flat', text='[P] Par')
+        self.btn_f.config(bg=BTN_GRAY, relief='flat', text='[F] False pos.')
+        self.btn_p.config(bg=BTN_GRAY, relief='flat', text='[P] Pair')
         self.btn_m.config(bg=BTN_GRAY, relief='flat', text='[M] Merger')
         self.frame.config(bg=BG_DEFAULT, highlightbackground='#444')
 
@@ -713,7 +713,7 @@ class PairInspectorApp:
     # ── Construcción de UI ────────────────────────────────────────────────────
 
     def _build_ui(self):
-        self.root.title('Pair Inspector — Clasificador de Galaxias')
+        self.root.title('Galaxy Pair Inspector')
         self.root.configure(bg='#111111')
 
         # ── Barra superior ────────────────────────────────────────────────────
@@ -732,20 +732,20 @@ class PairInspectorApp:
         btn_cfg = dict(font=('Arial', 11, 'bold'), relief='flat',
                        padx=10, pady=4, cursor='hand2')
 
-        self.btn_prev = tk.Button(top, text='◀ Anterior', bg='#2a4a6a', fg='white',
+        self.btn_prev = tk.Button(top, text='◀ Previous', bg='#2a4a6a', fg='white',
                                   **btn_cfg, command=self._prev_page)
         self.btn_prev.pack(side='left', padx=4)
 
-        self.btn_next = tk.Button(top, text='Siguiente ▶', bg='#2a6a4a', fg='white',
+        self.btn_next = tk.Button(top, text='Next ▶', bg='#2a6a4a', fg='white',
                                   **btn_cfg, command=self._next_page)
         self.btn_next.pack(side='left', padx=4)
 
-        self.btn_retry_all = tk.Button(top, text='🔄 Reintentar página',
+        self.btn_retry_all = tk.Button(top, text='🔄 Retry page',
                                        bg='#3a2800', fg='#ffaa44',
                                        **btn_cfg, command=self._retry_page)
         self.btn_retry_all.pack(side='left', padx=4)
 
-        tk.Button(top, text='Exportar CSV (Ctrl+E)', bg='#6a3a1a', fg='white',
+        tk.Button(top, text='Export CSV (Ctrl+E)', bg='#6a3a1a', fg='white',
                   **btn_cfg, command=self._export).pack(side='left', padx=4)
 
         # ── Menú ⚙ con opciones avanzadas (Limpiar guardadas, etc.) ──────────
@@ -765,7 +765,7 @@ class PairInspectorApp:
         # ── Barra de búsqueda por ID de par ───────────────────────────────────
         tk.Frame(top, bg='#444444', width=1).pack(side='left', fill='y',
                                                    padx=8, pady=2)
-        tk.Label(top, text='Buscar par #', bg='#111111', fg='#aaaaaa',
+        tk.Label(top, text='Go to pair #', bg='#111111', fg='#aaaaaa',
                  font=('Arial', 11)).pack(side='left')
         self._search_var = tk.StringVar()
         search_entry = tk.Entry(top, textvariable=self._search_var,
@@ -774,12 +774,12 @@ class PairInspectorApp:
                                 insertbackground='white', relief='flat')
         search_entry.pack(side='left', padx=(2, 4))
         search_entry.bind('<Return>', lambda e: self._search_pair())
-        tk.Button(top, text='Ver', bg='#2a4a6a', fg='white',
+        tk.Button(top, text='Go', bg='#2a4a6a', fg='white',
                   font=('Arial', 11, 'bold'), relief='flat',
                   cursor='hand2', padx=8, pady=4,
                   command=self._search_pair).pack(side='left')
 
-        self.lbl_status = tk.Label(top, text='Cargando…', bg='#111111',
+        self.lbl_status = tk.Label(top, text='Loading…', bg='#111111',
                                    fg='#888888', font=('Arial', 10, 'italic'))
         self.lbl_status.pack(side='right', padx=8)
 
@@ -863,7 +863,7 @@ class PairInspectorApp:
         page = self.v.get_page(PAGE_SIZE)
 
         if page.empty:
-            self.lbl_status.config(text='✓ Todos los pares revisados')
+            self.lbl_status.config(text='✓ All pairs reviewed')
             for cell in self.cells:
                 cell.clear()
             self._update_status_bar()
@@ -894,7 +894,7 @@ class PairInspectorApp:
                 raw_imgs = None
 
         if raw_imgs is None:
-            self.lbl_status.config(text='Descargando imágenes…')
+            self.lbl_status.config(text='Downloading images…')
             self.root.update_idletasks()
             raw_imgs = fetch_page_parallel(row_list)
 
@@ -1001,7 +1001,7 @@ class PairInspectorApp:
         # Se guarda el recorte LIMPIO (sin anotaciones) para entrenamiento
         img = self._current_raws[cell_idx] if cell_idx < len(self._current_raws) else None
         if img is None:
-            self.lbl_status.config(text='Sin imagen — no se puede clasificar')
+            self.lbl_status.config(text='No image — cannot classify')
             return
 
         if label == 'F':
@@ -1042,7 +1042,7 @@ class PairInspectorApp:
         failed = [i for i, cell in enumerate(self.cells)
                   if cell.row_data is not None and cell.pil_img is None]
         if not failed:
-            self.lbl_status.config(text='Todas las imágenes de esta página están cargadas')
+            self.lbl_status.config(text='All images on this page loaded')
             return
 
         self.btn_retry_all.config(text='⏳ Descargando…', state='disabled')
@@ -1060,7 +1060,7 @@ class PairInspectorApp:
         threading.Thread(target=_do, daemon=True).start()
 
     def _retry_page_done(self):
-        self.btn_retry_all.config(text='🔄 Reintentar página', state='normal')
+        self.btn_retry_all.config(text='🔄 Retry page', state='normal')
         self._update_status_bar()
         self.root.update()
 
@@ -1086,7 +1086,7 @@ class PairInspectorApp:
     def _retry_done(self, cell_idx: int, rd: dict, raw):
         """Callback cuando termina el reintento — ejecutado en hilo UI."""
         cell = self.cells[cell_idx]
-        cell.btn_retry_img.config(text='🔄  Reintentar descarga', state='normal')
+        cell.btn_retry_img.config(text='🔄  Retry download', state='normal')
 
         if raw is not None:
             annotated = annotate_image(raw, rd, self.v.rp_col)
@@ -1109,13 +1109,13 @@ class PairInspectorApp:
 
     def _save(self):
         self.v.save_progress()
-        self.lbl_status.config(text=f'Guardado  {datetime.now().strftime("%H:%M:%S")}')
+        self.lbl_status.config(text=f'Saved  {datetime.now().strftime("%H:%M:%S")}')
 
     def _export(self):
         self.v.save_progress()
         resultado = self.v.export_csv()
-        messagebox.showinfo('Exportar CSV', resultado)
-        self.lbl_status.config(text='CSV exportados')
+        messagebox.showinfo('Export CSV', resultado)
+        self.lbl_status.config(text='CSV exported')
 
     # ── Búsqueda por ID de par ────────────────────────────────────────────────
 
@@ -1200,9 +1200,9 @@ class PairInspectorApp:
             is_par = self.v.is_confirmed_pair(row_data)
             is_pm  = self.v.is_possible_merger(row_data)
             btn_f.config(relief='groove' if is_fp  else 'flat',
-                         text='[F] Falso pos. ✓' if is_fp  else '[F] Falso pos.')
+                         text='[F] False pos. ✓' if is_fp  else '[F] False pos.')
             btn_p.config(relief='groove' if is_par else 'flat',
-                         text='[P] Par ✓'        if is_par else '[P] Par')
+                         text='[P] Pair ✓'        if is_par else '[P] Pair')
             btn_m.config(relief='groove' if is_pm  else 'flat',
                          text='[M] Merger ✓'     if is_pm  else '[M] Merger')
             if is_fp:
@@ -1242,13 +1242,13 @@ class PairInspectorApp:
             _refresh_state()
             self._update_status_bar()   # actualizar contadores ventana principal
 
-        btn_f = tk.Button(bf, text='[F] Falso pos.', font=bfont,
+        btn_f = tk.Button(bf, text='[F] False pos.', font=bfont,
                           bg=BTN_GRAY, fg='#dddddd', activebackground='#606060',
                           relief='flat', cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('F'))
         btn_f.pack(side='left', padx=6)
 
-        btn_p = tk.Button(bf, text='[P] Par', font=bfont,
+        btn_p = tk.Button(bf, text='[P] Pair', font=bfont,
                           bg=BTN_GRAY, fg='#dddddd', activebackground='#606060',
                           relief='flat', cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('P'))
@@ -1281,7 +1281,7 @@ class PairInspectorApp:
             m.add_command(label='[P]  Par confirmado',  command=lambda: _classify('P'))
             m.add_command(label='[M]  Merger',          command=lambda: _classify('M'))
             m.add_separator()
-            m.add_command(label='🔭  Abrir en Sky Viewer', command=_open_sky)
+            m.add_command(label='🔭  Open in Sky Viewer', command=_open_sky)
             m.tk_popup(event.x_root, event.y_root)
 
         canvas.bind('<Button-2>', _ctx)
@@ -1294,7 +1294,7 @@ class PairInspectorApp:
         _refresh_state()
 
         # ── Descarga en background ────────────────────────────────────────────
-        btn_reload = tk.Button(win, text='🔄  Reintentar descarga',
+        btn_reload = tk.Button(win, text='🔄  Retry download',
                                font=('Arial', 10), bg='#3a2000', fg='#ffaa44',
                                activebackground='#704000', relief='flat',
                                cursor='hand2', padx=8, pady=3)
@@ -1318,7 +1318,7 @@ class PairInspectorApp:
                 key  = (round(ra_mid, 5), round(dec_mid, 5))
                 err  = _fetch_errors.get(key, 'Error de descarga')
                 disp = make_error_tile(err).resize((DETAIL_PX, DETAIL_PX), Image.LANCZOS)
-                btn_reload.config(text='🔄  Reintentar descarga', state='normal')
+                btn_reload.config(text='🔄  Retry download', state='normal')
                 btn_reload.pack(pady=(0, 8))      # imagen fallida → mostrar botón
             _tk_ref[0] = ImageTk.PhotoImage(disp)
             canvas.delete('all')

@@ -290,7 +290,7 @@
     <div class="hdr-title">🌌 GalPairs</div>
     <div class="hdr-counter" id="ctrText">— / —</div>
     <button class="hdr-btn" onclick="openModal('stats')" title="Estadísticas">📊</button>
-    <button class="hdr-btn" onclick="openModal('export')" title="Exportar">⬆︎</button>
+    <button class="hdr-btn" onclick="openModal('export')" title="Export">⬆︎</button>
   </header>
 
   <!-- PROGRESS BAR -->
@@ -317,12 +317,12 @@
       <div class="cl-grid">
         <button class="btn-cl" id="btnFP" onclick="classify('FP')">
           <span class="ic">❌</span>
-          <span>Falso Pos.</span>
+          <span>False Pos.</span>
           <span class="lbl">FP</span>
         </button>
         <button class="btn-cl" id="btnPair" onclick="classify('Pair')">
           <span class="ic">✅</span>
-          <span>Par</span>
+          <span>Pair</span>
           <span class="lbl">Pair</span>
         </button>
         <button class="btn-cl" id="btnPM" onclick="classify('PM')">
@@ -336,11 +336,11 @@
     <!-- Navigation -->
     <div class="nav-section">
       <div class="nav-grid">
-        <button class="btn-nav" onclick="navigate(-1)">← Anterior</button>
-        <button class="btn-nav" onclick="navigate(1)">Siguiente →</button>
+        <button class="btn-nav" onclick="navigate(-1)">← Previous</button>
+        <button class="btn-nav" onclick="navigate(1)">Next →</button>
       </div>
       <button class="btn-skip" onclick="skipToUnclassified()">
-        ⏭&nbsp; Saltar al siguiente sin clasificar
+        ⏭&nbsp; Skip to next unclassified
       </button>
     </div>
 
@@ -349,18 +349,12 @@
   <!-- NO CATALOG SCREEN -->
   <div id="noCatalog">
     <div style="font-size:52px">📂</div>
-    <h2>Catálogo no encontrado</h2>
-    <p>Ejecuta el script de exportación en tu Mac:</p>
-    <div class="code-blk">python export_catalog.py</div>
-    <p>Luego inicia el servidor local:</p>
-    <div class="code-blk">python serve_mobile.py</div>
-    <p style="margin-top:12px;font-size:13px">
-      Abre en Safari desde tu iPhone:<br>
-      <strong>http://&lt;IP-de-tu-Mac&gt;:8080</strong>
-    </p>
+    <h2>Catalog not found</h2>
+    <p>Run the export script on your Mac:</p>
+    <div class="code-blk">python pipeline/export_standalone.py</div>
     <p style="margin-top:16px;font-size:12px;color:#555">
-      Tip: agrega la página al inicio (Compartir → Añadir a pantalla de inicio)
-      para usarla como app nativa.
+      Tip: add the page to your home screen (Share → Add to Home Screen)
+      to use it as a native app.
     </p>
   </div>
 
@@ -368,15 +362,15 @@
   <div class="modal-back hidden" id="statsModal" onclick="closeModal('stats')">
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-handle"></div>
-      <div class="modal-title">Progreso de clasificación</div>
+      <div class="modal-title">Classification progress</div>
       <div class="stats-grid">
         <div class="stat-card c-fp">
           <div class="stat-num" id="sFP">0</div>
-          <div class="stat-lbl">Falsos Pos.</div>
+          <div class="stat-lbl">False Pos.</div>
         </div>
         <div class="stat-card c-pair">
           <div class="stat-num" id="sPair">0</div>
-          <div class="stat-lbl">Pares</div>
+          <div class="stat-lbl">Pairs</div>
         </div>
         <div class="stat-card c-pm">
           <div class="stat-num" id="sPM">0</div>
@@ -385,7 +379,7 @@
       </div>
       <div id="sTotal" style="color:#777;font-size:13px;text-align:center;margin-bottom:8px"></div>
       <div id="sDevice" style="color:#555;font-size:12px;text-align:center;margin-bottom:16px"></div>
-      <button class="mbtn mbtn-secondary" onclick="closeModal('stats')">Cerrar</button>
+      <button class="mbtn mbtn-secondary" onclick="closeModal('stats')">Close</button>
     </div>
   </div>
 
@@ -393,19 +387,19 @@
   <div class="modal-back hidden" id="exportModal" onclick="closeModal('export')">
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-handle"></div>
-      <div class="modal-title">Exportar clasificaciones</div>
+      <div class="modal-title">Export classifications</div>
       <p style="font-size:13px;color:#888;margin-bottom:14px;line-height:1.55">
-        Descarga el JSON y envíalo a tu Mac (AirDrop, iCloud, etc.).
-        Luego importa al sistema principal con:
+        Download the JSON and send it to your Mac (AirDrop, iCloud, etc.).
+        Then import with:
       </p>
-      <div class="code-blk">python import_from_mobile.py &lt;archivo.json&gt;</div>
+      <div class="code-blk">python pipeline/import_from_mobile.py &lt;file.json&gt;</div>
       <div id="expStats" style="font-size:13px;color:#aaa;margin:12px 0"></div>
-      <button class="mbtn mbtn-primary"     onclick="doExport()">⬇&nbsp; Descargar JSON</button>
+      <button class="mbtn mbtn-primary"     onclick="doExport()">⬇&nbsp; Download JSON</button>
       <button class="mbtn" id="syncBtn"
               style="background:#1a5c3a;color:#fff;"
-              onclick="syncToCloud()">☁&nbsp; Sincronizar con la nube</button>
+              onclick="syncToCloud()">☁&nbsp; Sync to cloud</button>
       <div id="syncStatus" style="font-size:13px;margin:6px 0;min-height:18px"></div>
-      <button class="mbtn mbtn-secondary"   onclick="closeModal('export')">Cancelar</button>
+      <button class="mbtn mbtn-secondary"   onclick="closeModal('export')">Cancel</button>
     </div>
   </div>
 
@@ -647,8 +641,8 @@
     let badge = '';
     if (cl) {
       const color = cl === 'FP' ? '#ef9a9a' : cl === 'Pair' ? '#a5d6a7' : '#ffcc80';
-      const label = cl === 'FP' ? 'Falso Positivo' : cl === 'Pair' ? 'Par Confirmado' : 'Possible Merger';
-      const src   = desktopCl[id] && !classifications[id] ? ' <span style="color:#666">(escritorio)</span>' : '';
+      const label = cl === 'FP' ? 'False Positive' : cl === 'Pair' ? 'Confirmed Pair' : 'Possible Merger';
+      const src   = desktopCl[id] && !classifications[id] ? ' <span style="color:#666">(desktop)</span>' : '';
       badge = `<div class="cl-badge" style="color:${color}">✓ ${label}${src}</div>`;
     }
 
@@ -670,7 +664,7 @@
       <div class="info-row" style="margin-top:4px;font-size:11px">
         <span style="color:#ff7a6a">z₁ = <strong style="color:#ffb3a8">${z1}</strong></span>
         <span style="color:#55aaff">z₂ = <strong style="color:#a8d4ff">${z2}</strong></span>
-        <span style="color:#555">doble toque → Sky Viewer</span>
+        <span style="color:#555">double tap → Sky Viewer</span>
       </div>
       ${badge}
     `;
@@ -732,7 +726,7 @@
         return;
       }
     }
-    alert('¡Todos los pares del catálogo han sido clasificados! 🎉');
+    alert('All pairs in the catalog have been classified! 🎉');
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -824,14 +818,14 @@
       document.getElementById('sPair').textContent = pair;
       document.getElementById('sPM').textContent   = pm;
       document.getElementById('sTotal').textContent =
-        `Total: ${total} / ${catalog.length} (${pct}%) — este dispositivo: ${mob}`;
+        `Total: ${total} / ${catalog.length} (${pct}%) — this device: ${mob}`;
       document.getElementById('sDevice').textContent =
-        `ID dispositivo: ${deviceId || '—'}  (incluido en el JSON exportado)`;
+        `Device ID: ${deviceId || '—'}  (included in exported JSON)`;
     }
     if (name === 'export') {
       const n = Object.keys(classifications).length;
       document.getElementById('expStats').textContent =
-        `${n} clasificaciones nuevas desde este dispositivo.`;
+        `${n} classifications from this device.`;
     }
     document.getElementById(`${name}Modal`).classList.remove('hidden');
   }
@@ -880,13 +874,13 @@
     const entries = Object.entries(classifications);
     if (!entries.length) {
       statusEl.style.color = '#aaa';
-      statusEl.textContent = 'Sin clasificaciones locales que sincronizar.';
+      statusEl.textContent = 'No local classifications to sync.';
       return;
     }
 
     btn.disabled = true;
     statusEl.style.color = '#aaa';
-    statusEl.textContent = `Enviando ${entries.length} clasificaciones…`;
+    statusEl.textContent = `Sending ${entries.length} classifications…`;
 
     const rows = entries.map(([id, cl]) => ({
       device_id:      deviceId,
@@ -909,7 +903,7 @@
 
       if (resp.ok || resp.status === 201 || resp.status === 204) {
         statusEl.style.color = '#a5d6a7';
-        statusEl.textContent = `✓ ${entries.length} clasificaciones sincronizadas.`;
+        statusEl.textContent = `✓ ${entries.length} classifications synced.`;
       } else {
         const txt = await resp.text();
         statusEl.style.color = '#ef9a9a';

@@ -17,12 +17,12 @@ outputs/
 *.h5
 
 # ── App móvil — datos generados (NO código) ───────────────────────────────────
-mobile_app/catalog.json
+mobile/catalog.json
 mobile_cl_*.json
 # GalPairs.html NO está excluido — se publica en GitHub Pages
 
 # Excepciones: archivos de código de la app móvil
-!mobile_app/manifest.json
+!mobile/manifest.json
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/

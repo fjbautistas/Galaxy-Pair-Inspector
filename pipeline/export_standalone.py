@@ -41,8 +41,8 @@ CATALOG_PATH = (
     'DESI_int_legacyID_pairs.parquet'
 )
 PROGRESS_FILE  = 'outputs/catalogs/progress.json'
-TEMPLATE_HTML  = 'mobile_app/index.html'
-OUTPUT_HTML    = 'mobile_app/GalPairs.html'
+TEMPLATE_HTML  = 'mobile/index.html'
+OUTPUT_HTML    = 'mobile/GalPairs.html'
 RP_MAX_KPC     = 12.0
 
 # ── Supabase (auto-guardado desde la app móvil) ───────────────────────────────
