@@ -94,7 +94,7 @@
     }
     .img-wrapper {
       position: relative;
-      width: min(100%, 320px);
+      width: min(90vw, 420px);
       aspect-ratio: 1;
       border-radius: 12px;
       overflow: hidden;
@@ -143,10 +143,19 @@
       color: #aaa; border-radius: 8px; font-size: 13px; cursor: pointer;
     }
 
-    /* ── PAIR INFO ───────────────────────────── */
+    /* ── PAIR HEADER (encima de la imagen) ──── */
+    .pair-header {
+      width: min(90vw, 420px);
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* ── PAIR INFO (debajo de la imagen) ─────── */
     .pair-info {
-      width: min(100%, 320px);
-      margin-top: 9px;
+      width: min(90vw, 420px);
+      margin-top: 6px;
       font-size: 12px;
       color: var(--muted);
       line-height: 1.55;
@@ -292,6 +301,7 @@
 
     <!-- Image Area -->
     <div class="img-area">
+      <div class="pair-header" id="pairHeader"></div>
       <div class="img-wrapper" id="imgWrapper">
         <img id="galaxyImg" alt="">
         <canvas id="markerCanvas"></canvas>
@@ -642,17 +652,22 @@
       badge = `<div class="cl-badge" style="color:${color}">✓ ${label}${src}</div>`;
     }
 
-    document.getElementById('pairInfo').innerHTML = `
+    document.getElementById('pairHeader').innerHTML = `
       <div class="info-row">
         <span>ID: <strong>${pair.id_par}</strong></span>
         <span>rp: <strong>${rp}</strong></span>
-        <span>sep: ${sep}</span>
+        <span>sep: <strong>${sep}</strong></span>
+      </div>
+    `;
+
+    document.getElementById('pairInfo').innerHTML = `
+      <div class="info-row" style="font-size:11px">
+        <span style="color:#ff7a6a">G1 &nbsp;RA <strong>${pair.ra1.toFixed(4)}</strong> &nbsp;DEC <strong>${pair.dec1.toFixed(4)}</strong></span>
+      </div>
+      <div class="info-row" style="font-size:11px;margin-top:1px">
+        <span style="color:#55aaff">G2 &nbsp;RA <strong>${pair.ra2.toFixed(4)}</strong> &nbsp;DEC <strong>${pair.dec2.toFixed(4)}</strong></span>
       </div>
       <div class="info-row" style="margin-top:4px;font-size:11px">
-        <span style="color:#ff7a6a">G1: ${pair.ra1.toFixed(4)}°, ${pair.dec1.toFixed(4)}°</span>
-        <span style="color:#55aaff">G2: ${pair.ra2.toFixed(4)}°, ${pair.dec2.toFixed(4)}°</span>
-      </div>
-      <div class="info-row" style="margin-top:2px;font-size:11px">
         <span style="color:#ff7a6a">z₁ = <strong style="color:#ffb3a8">${z1}</strong></span>
         <span style="color:#55aaff">z₂ = <strong style="color:#a8d4ff">${z2}</strong></span>
         <span style="color:#555">doble toque → Sky Viewer</span>

@@ -156,7 +156,7 @@ def _radec_to_pixel(ra, dec, ra_mid, dec_mid, pixscale):
 
 
 def annotate_image(img: Image.Image, row: dict, rp_col: 'str | None') -> Image.Image:
-    """Dibuja círculos semitransparentes, línea de conexión y etiqueta rp."""
+    """Dibuja líneas guía (leader lines) desde cada galaxia hacia su etiqueta G1/G2."""
     base = img.copy().resize((IMG_SIZE_PX, IMG_SIZE_PX)).convert('RGBA')
 
     ra1, dec1 = row['ra1'], row['dec1']
@@ -170,58 +170,72 @@ def annotate_image(img: Image.Image, row: dict, rp_col: 'str | None') -> Image.I
 
     x1, y1 = _radec_to_pixel(ra1, dec1, ra_mid, dec_mid, ps)
     x2, y2 = _radec_to_pixel(ra2, dec2, ra_mid, dec_mid, ps)
-    r  = CIRCLE_RADIUS
-    a  = CIRCLE_ALPHA     # anillo de referencia — casi invisible
-    ca = CROSS_ALPHA      # marcadores de posición — bien visibles
-    c  = CROSS_SIZE
 
-    # Capa semitransparente: línea de conexión + marcadores de posición
+    # ── Leader lines ─────────────────────────────────────────────────────
+    # G1 va hacia arriba-izquierda si está a la izquierda de G2, y viceversa
+    LLEN   = 18          # longitud de la línea en píxeles
+    D      = 0.707       # cos/sin de 45°
+    g1left = x1 <= x2
+    a1x    = -D if g1left else  D
+    a2x    =  D if g1left else -D
+
+    lx1, ly1 = x1 + a1x * LLEN, y1 - D * LLEN   # endpoint G1
+    lx2, ly2 = x2 + a2x * LLEN, y2 - D * LLEN   # endpoint G2
+
     overlay = Image.new('RGBA', base.size, (0, 0, 0, 0))
     odraw   = ImageDraw.Draw(overlay)
 
-    # Línea conectora
-    odraw.line([x1, y1, x2, y2], fill=(220, 220, 220, 100), width=1)
+    # Sombra de las líneas (offset mínimo, sin width extra)
+    for ox, oy in ((1, 0), (0, 1)):
+        odraw.line([x1+ox, y1+oy, lx1+ox, ly1+oy], fill=(0, 0, 0, 100), width=1)
+        odraw.line([x2+ox, y2+oy, lx2+ox, ly2+oy], fill=(0, 0, 0, 100), width=1)
 
-    # Sombra oscura primero (1 px más grande) → el marcador resalta sobre
-    # cualquier fondo, claro u oscuro
-    shadow = (0, 0, 0, ca)
-
-    # Galaxia 1 — cruz (+) roja con sombra
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):   # offsets de sombra
-        odraw.line([x1-c+dx, y1+dy, x1+c+dx, y1+dy], fill=shadow, width=2)
-        odraw.line([x1+dx, y1-c+dy, x1+dx, y1+c+dy], fill=shadow, width=2)
-    odraw.line([x1-c, y1,   x1+c, y1  ], fill=(*COLOR_G1, ca), width=1)
-    odraw.line([x1,   y1-c, x1,   y1+c], fill=(*COLOR_G1, ca), width=1)
-    odraw.ellipse([x1-r, y1-r, x1+r, y1+r], outline=(*COLOR_G1, a), width=1)
-
-    # Galaxia 2 — X azul con sombra
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        odraw.line([x2-c+dx, y2-c+dy, x2+c+dx, y2+c+dy], fill=shadow, width=2)
-        odraw.line([x2+c+dx, y2-c+dy, x2-c+dx, y2+c+dy], fill=shadow, width=2)
-    odraw.line([x2-c, y2-c, x2+c, y2+c], fill=(*COLOR_G2, ca), width=1)
-    odraw.line([x2+c, y2-c, x2-c, y2+c], fill=(*COLOR_G2, ca), width=1)
-    odraw.ellipse([x2-r, y2-r, x2+r, y2+r], outline=(*COLOR_G2, a), width=1)
+    # Líneas coloreadas — un solo píxel de ancho
+    odraw.line([x1, y1, lx1, ly1], fill=(*COLOR_G1, 180), width=1)
+    odraw.line([x2, y2, lx2, ly2], fill=(*COLOR_G2, 180), width=1)
 
     base = Image.alpha_composite(base, overlay)
+    draw = ImageDraw.Draw(base)
 
-    # Etiquetas de texto sobre capa opaca (siempre legibles)
-    draw   = ImageDraw.Draw(base)
-    margin = 4
-    if rp_col and rp_col in row:
-        label = f'rp={row[rp_col]:.1f} kpc'
+    # ── Etiquetas G1 / G2 al final de cada línea ─────────────────────────
+    CH = 6   # ancho aproximado por carácter en la fuente por defecto
+    if g1left:
+        draw.text((lx1 - 2*CH - 2, ly1 - 9), 'G1', fill=COLOR_G1)
+        draw.text((lx2 + 2,         ly2 - 9), 'G2', fill=COLOR_G2)
     else:
-        label = f'{sep:.1f}"'
-    draw.rectangle([margin-2, IMG_SIZE_PX-18,
-                    margin+len(label)*6+2, IMG_SIZE_PX-margin],
-                   fill=(0, 0, 0, 200))
-    draw.text((margin, IMG_SIZE_PX-18), label, fill=TEXT_COLOR)
+        draw.text((lx1 + 2,         ly1 - 9), 'G1', fill=COLOR_G1)
+        draw.text((lx2 - 2*CH - 2, ly2 - 9), 'G2', fill=COLOR_G2)
 
+    # ── Textos en la imagen ───────────────────────────────────────────────
+    margin = 4
+
+    # ID del par — arriba izquierda
     if 'id_par' in row:
         id_label = f'par #{int(row["id_par"])}'
         draw.rectangle([margin-2, margin-2,
-                        margin+len(id_label)*6+2, margin+14],
+                        margin + len(id_label)*CH + 2, margin + 10],
                        fill=(0, 0, 0, 200))
         draw.text((margin, margin), id_label, fill=TEXT_COLOR)
+
+    # rp — abajo izquierda, primera fila
+    if rp_col and rp_col in row:
+        rp_label = f'rp={row[rp_col]:.1f} kpc'
+    else:
+        rp_label = f'sep={sep:.1f}"'
+    draw.rectangle([margin-2, IMG_SIZE_PX - 30,
+                    margin + len(rp_label)*CH + 2, IMG_SIZE_PX - 18],
+                   fill=(0, 0, 0, 200))
+    draw.text((margin, IMG_SIZE_PX - 30), rp_label, fill=TEXT_COLOR)
+
+    # z1, z2 — abajo izquierda, segunda fila
+    z1 = row.get('z1')
+    z2 = row.get('z2')
+    if z1 is not None and z2 is not None:
+        z_label = f'z1={float(z1):.3f}  z2={float(z2):.3f}'
+        draw.rectangle([margin-2, IMG_SIZE_PX - 16,
+                        margin + len(z_label)*CH + 2, IMG_SIZE_PX - margin],
+                       fill=(0, 0, 0, 200))
+        draw.text((margin, IMG_SIZE_PX - 16), z_label, fill=TEXT_COLOR)
 
     return base.convert('RGB')
 
