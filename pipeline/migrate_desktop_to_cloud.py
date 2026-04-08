@@ -67,18 +67,46 @@ def load_classifications() -> list:
     return rows
 
 
-def upsert_rows(rows: list):
-    """Sends all rows to Supabase in one request."""
-    url  = f'{SUPABASE_URL}/rest/v1/clasificaciones'
+def _post(url, headers, rows):
     data = json.dumps(rows).encode('utf-8')
-    req  = urlreq.Request(url, data=data, headers={
+    req  = urlreq.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urlreq.urlopen(req, timeout=30) as resp:
+            return resp.status, None
+    except urlreq.HTTPError as e:
+        return e.code, e.read().decode('utf-8')
+
+
+def upsert_rows(rows: list, batch_size: int = 50):
+    """Sends rows to Supabase in batches. Falls back to row-by-row on error."""
+    url = (f'{SUPABASE_URL}/rest/v1/clasificaciones'
+           f'?on_conflict=device_id,id_par')
+    headers = {
         'apikey':        SUPABASE_ANON,
         'Authorization': f'Bearer {SUPABASE_ANON}',
         'Content-Type':  'application/json',
         'Prefer':        'resolution=merge-duplicates,return=minimal',
-    }, method='POST')
-    with urlreq.urlopen(req, timeout=30) as resp:
-        return resp.status
+    }
+    skipped = []
+    for i in range(0, len(rows), batch_size):
+        batch  = rows[i:i + batch_size]
+        status, err = _post(url, headers, batch)
+        if err:
+            print(f'  Batch {i // batch_size + 1}: ERROR {status} — retrying row by row…')
+            for row in batch:
+                s, e = _post(url, headers, [row])
+                if e:
+                    print(f'    ✗ id_par={row["id_par"]} ({row["classification"]}) → {s}: {e[:80]}')
+                    skipped.append(row)
+                else:
+                    print(f'    ✓ id_par={row["id_par"]}')
+        else:
+            print(f'  Batch {i // batch_size + 1}: {len(batch)} rows → HTTP {status}')
+    if skipped:
+        print(f'\n{len(skipped)} rows could not be uploaded:')
+        for r in skipped:
+            print(f'  {r}')
+    return skipped
 
 
 def main():
@@ -97,12 +125,11 @@ def main():
     print(f'  FP: {counts["FP"]}  |  Pair: {counts["Pair"]}  |  PM: {counts["PM"]}')
     print(f'Uploading to Supabase as device_id="{DEVICE_ID}"...')
 
-    try:
-        status = upsert_rows(rows)
-        print(f'✓  Done  (HTTP {status})')
-    except Exception as exc:
-        print(f'ERROR: {exc}')
-        sys.exit(1)
+    skipped = upsert_rows(rows)
+    if skipped:
+        print(f'\n⚠  Completed with {len(skipped)} skipped rows.')
+    else:
+        print('\n✓  All rows uploaded successfully.')
 
 
 if __name__ == '__main__':
