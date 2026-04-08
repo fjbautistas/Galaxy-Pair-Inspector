@@ -961,14 +961,72 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // PARTITION — auto-registro y asignación de bloque desde Supabase
+  // ═══════════════════════════════════════════════════════════════════════
+  const CALIB_SIZE = 150;
+  const BLOCK_SIZE = 3000;
+
+  async function getOrCreatePartition(devId) {
+    const url  = window._SUPABASE_URL;
+    const key  = window._SUPABASE_ANON_KEY;
+    if (!url || !key) return null;
+
+    const headers = {
+      'apikey':        key,
+      'Authorization': `Bearer ${key}`,
+      'Content-Type':  'application/json',
+    };
+
+    // 1. ¿Ya existe partición para este dispositivo?
+    try {
+      const r = await fetch(
+        `${url}/rest/v1/partitions?device_id=eq.${devId}&select=*&limit=1`,
+        { headers }
+      );
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows.length > 0) return rows[0];
+    } catch (_) { return null; }
+
+    // 2. Buscar el work_end máximo actual para asignar el siguiente bloque
+    let maxEnd = CALIB_SIZE;
+    try {
+      const r = await fetch(
+        `${url}/rest/v1/partitions?select=work_end&order=work_end.desc&limit=1`,
+        { headers }
+      );
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows.length > 0) maxEnd = rows[0].work_end;
+    } catch (_) {}
+
+    // 3. Insertar nueva partición
+    const partition = {
+      device_id:  devId,
+      calib_seed: Math.floor(Math.random() * 1_000_000),
+      work_start: maxEnd,
+      work_end:   maxEnd + BLOCK_SIZE,
+    };
+    try {
+      const r = await fetch(`${url}/rest/v1/partitions`, {
+        method:  'POST',
+        headers: { ...headers, 'Prefer': 'return=representation' },
+        body:    JSON.stringify([partition]),
+      });
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows.length > 0) return rows[0];
+    } catch (_) {}
+
+    // 4. Fallback: usar la partición generada localmente sin confirmar
+    return partition;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // INIT
   // ═══════════════════════════════════════════════════════════════════════
   async function init() {
     loadState();
 
     try {
-      // Modo standalone: datos embebidos directamente en el HTML
-      // Modo servidor:   carga catalog.json desde el servidor local
+      // Cargar catálogo embebido o desde servidor
       let data;
       if (window._CATALOG) {
         data = window._CATALOG;
@@ -979,27 +1037,28 @@
       }
 
       const basePairs = data.pairs || [];
-      desktopCl       = data.desktop_classified || {};
-      const calibN    = data.calibration_size   || 100;
+      desktopCl = data.desktop_classified || {};
+      deviceId  = getOrCreateDeviceId();
 
-      // ── Orden personalizado por dispositivo ──────────────────────────
-      // • Primeros calibN pares: mismos para todos (inter-rater reliability),
-      //   pero en orden distinto por dispositivo → dos personas clasificando
-      //   a la vez no ven el mismo par en el mismo momento.
-      // • Del par calibN+1 en adelante: secuencia única por dispositivo
-      //   → máxima cobertura total del catálogo.
-      deviceId = getOrCreateDeviceId();
-      const calibration = basePairs.slice(0, calibN);
-      const rest        = basePairs.slice(calibN);
-      const devSeed     = strToSeed(deviceId);
-      catalog = [
-        ...seededShuffle(calibration, devSeed),          // mismos 25, orden propio
-        ...seededShuffle(rest,        devSeed ^ 0xA5F3), // pares únicos del resto
-      ];
+      // ── Obtener/crear partición desde Supabase ───────────────────────
+      const partition = await getOrCreatePartition(deviceId);
+
+      let calibPairs, workPairs;
+      if (partition) {
+        // Calibración: primeros CALIB_SIZE pares, orden aleatorio por dispositivo
+        calibPairs = seededShuffle(basePairs.slice(0, CALIB_SIZE), partition.calib_seed);
+        // Trabajo: bloque exclusivo de este dispositivo
+        workPairs  = basePairs.slice(partition.work_start, partition.work_end);
+      } else {
+        // Sin Supabase: shuffle por device_id (comportamiento anterior)
+        const devSeed  = strToSeed(deviceId);
+        calibPairs = seededShuffle(basePairs.slice(0, CALIB_SIZE), devSeed);
+        workPairs  = seededShuffle(basePairs.slice(CALIB_SIZE), devSeed ^ 0xA5F3);
+      }
+
+      catalog = [...calibPairs, ...workPairs];
 
       if (!catalog.length) { showNoCatalog(); return; }
-
-      // Clamp saved index
       if (currentIndex >= catalog.length) currentIndex = 0;
       showPair(currentIndex);
 

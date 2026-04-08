@@ -1,54 +1,38 @@
 """
-export_standalone.py — Genera un único archivo HTML con el catálogo embebido.
+export_standalone.py — Genera un único HTML con el catálogo completo embebido.
 
-El archivo resultante funciona directamente en Safari del iPhone sin servidor.
-Solo necesita internet para cargar las imágenes de Legacy Survey.
+Cada dispositivo que abra el HTML se auto-registra en Supabase la primera vez
+y recibe automáticamente su partición sin intervención manual.
 
 Uso:
-    python export_standalone.py
+    python pipeline/export_standalone.py
 
-Genera: mobile_app/GalPairs.html  (~4 MB)
+Genera: mobile/GalPairs.html
 
-Flujo de uso:
-    1. Corre este script en el Mac
-    2. AirDrop de  mobile_app/GalPairs.html  al iPhone
-    3. En el iPhone: Archivos → GalPairs.html → Abrir con Safari
-    4. Clasificar en cualquier lugar con internet
-    5. Exportar JSON desde la app → AirDrop de vuelta al Mac
-    6. python import_from_mobile.py mobile_cl_YYYY-MM-DD.json
+Flujo:
+    1. Corre este script (una sola vez, o cuando cambie el catálogo)
+    2. git add mobile/GalPairs.html && git commit && git push
+    3. Cada usuario abre fjbautistas.github.io/Galaxy-Pair-Inspector/mobile/GalPairs.html
+       → se registra solo en Supabase → clasifica su bloque asignado
 """
 
 import json
 import os
-import random
-import re
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-# Semilla fija → todos los dispositivos ven el mismo orden aleatorio.
-# Cámbiala solo si quieres generar un orden completamente nuevo.
-SHUFFLE_SEED     = 42    # orden base idéntico en todos los dispositivos
-CALIBRATION_SIZE = 40    # pares de calibración (iguales en todos los dispositivos)
+# ── Configuración ──────────────────────────────────────────────────────────────
+CATALOG_PATH  = 'data/DESI_int_legacyID_pairs.parquet'
+PROGRESS_FILE = 'outputs/catalogs/progress.json'
+TEMPLATE_HTML = 'mobile/index.html'
+OUTPUT_HTML   = 'mobile/GalPairs.html'
+RP_MAX_KPC    = 12.0
 
-# ── Configuración ─────────────────────────────────────────────────────────────
-
-CATALOG_PATH = (
-    '/Users/frank/Documents/Estudio-PhD/Semestre-2025-II/Tesis_I/'
-    'Galaxy_Pairs/Galaxy_pairs/outputs/catalogs/interacting/'
-    'DESI_int_legacyID_pairs.parquet'
-)
-PROGRESS_FILE  = 'outputs/catalogs/progress.json'
-TEMPLATE_HTML  = 'mobile/index.html'
-OUTPUT_HTML    = 'mobile/GalPairs.html'
-RP_MAX_KPC     = 12.0
-
-# ── Supabase (auto-guardado desde la app móvil) ───────────────────────────────
-# La anon key es segura para incluir en el HTML público (solo permite INSERT/UPDATE
-# en la tabla 'clasificaciones', gracias a las RLS policies).
-# Leemos del .env para no duplicar la configuración.
+# ── Leer .env ─────────────────────────────────────────────────────────────────
 def _load_env(path='.env'):
     env = {}
     try:
@@ -62,36 +46,32 @@ def _load_env(path='.env'):
         pass
     return env
 
-_env = _load_env()
+_env              = _load_env()
 SUPABASE_URL      = _env.get('SUPABASE_URL', '')
 SUPABASE_ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-def compute_sep_arcsec(df):
-    ra1, dec1 = df['ra1'].values, df['dec1'].values
-    ra2, dec2 = df['ra2'].values, df['dec2'].values
-    dec_mid   = np.radians((dec1 + dec2) / 2.0)
-    dx = (ra1 - ra2) * np.cos(dec_mid) * 3600.0
-    dy = (dec1 - dec2) * 3600.0
+# ── Catálogo ──────────────────────────────────────────────────────────────────
+def _compute_sep(df):
+    dec_mid = np.radians((df['dec1'].values + df['dec2'].values) / 2.0)
+    dx = (df['ra1'].values - df['ra2'].values) * np.cos(dec_mid) * 3600.0
+    dy = (df['dec1'].values - df['dec2'].values) * 3600.0
     return pd.Series(np.hypot(dx, dy), index=df.index)
 
 
-def load_desktop_classified(progress_file):
+def _load_desktop_classified(progress_file):
     if not os.path.exists(progress_file):
         return {}
     with open(progress_file) as f:
         state = json.load(f)
     result = {}
-    for id_par in state.get('false_positives',  []): result[str(id_par)] = 'FP'
-    for id_par in state.get('confirmed_pairs',   []): result[str(id_par)] = 'Pair'
-    for id_par in state.get('possible_mergers',  []): result[str(id_par)] = 'PM'
+    for entry in state.get('false_positives',  []): result[str(entry.get('id_par', ''))] = 'FP'
+    for entry in state.get('confirmed_pairs',   []): result[str(entry.get('id_par', ''))] = 'Pair'
+    for entry in state.get('possible_mergers',  []): result[str(entry.get('id_par', ''))] = 'PM'
     return result
 
 
-def build_catalog_dict():
-    """Lee el catálogo y devuelve el dict listo para embeber."""
-    print(f'Leyendo catálogo...')
+def build_catalog() -> dict:
+    print('Leyendo catálogo…')
     df = pd.read_parquet(CATALOG_PATH)
     print(f'  {len(df):,} pares totales')
 
@@ -101,7 +81,7 @@ def build_catalog_dict():
         print(f'  {len(df):,} pares tras filtro rp < {RP_MAX_KPC} kpc')
 
     if 'sep_arcsec' not in df.columns:
-        df['sep_arcsec'] = compute_sep_arcsec(df)
+        df['sep_arcsec'] = _compute_sep(df)
     if 'ra_mid' not in df.columns:
         df['ra_mid']  = (df['ra1'] + df['ra2']) / 2.0
     if 'dec_mid' not in df.columns:
@@ -130,19 +110,11 @@ def build_catalog_dict():
             entry['z2'] = round(float(row['z2']), 4)
         pairs.append(entry)
 
-    # Orden aleatorio fijo — igual en todos los dispositivos que descarguen
-    # el mismo GalPairs.html. Las primeras N galaxias que clasifique cada
-    # persona son las mismas → overlap natural para inter-rater reliability.
-    random.seed(SHUFFLE_SEED)
-    random.shuffle(pairs)
-    print(f'  Orden aleatorio aplicado (seed={SHUFFLE_SEED})')
-
-    desktop_cl = load_desktop_classified(PROGRESS_FILE)
+    desktop_cl = _load_desktop_classified(PROGRESS_FILE)
+    print(f'  {len(desktop_cl)} pares ya clasificados en escritorio')
 
     return {
         'exported_at':        datetime.now().isoformat(),
-        'shuffle_seed':       SHUFFLE_SEED,
-        'calibration_size':   CALIBRATION_SIZE,
         'rp_max_kpc':         RP_MAX_KPC,
         'total_pairs':        len(pairs),
         'desktop_classified': desktop_cl,
@@ -150,56 +122,51 @@ def build_catalog_dict():
     }
 
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     if not Path(CATALOG_PATH).exists():
-        raise FileNotFoundError(f'No se encontró el catálogo:\n  {CATALOG_PATH}')
+        print(f'ERROR: No se encontró el catálogo en {CATALOG_PATH}')
+        sys.exit(1)
     if not Path(TEMPLATE_HTML).exists():
-        raise FileNotFoundError(f'No se encontró {TEMPLATE_HTML}. Verifica que mobile_app/index.html existe.')
+        print(f'ERROR: No se encontró la plantilla {TEMPLATE_HTML}')
+        sys.exit(1)
 
-    # Construir datos del catálogo
-    catalog = build_catalog_dict()
-    print(f'  {len(catalog["desktop_classified"])} ya clasificados en escritorio')
-
-    # Serializar con separadores compactos (sin espacios)
-    print('Generando JSON embebido...')
+    catalog      = build_catalog()
     catalog_json = json.dumps(catalog, separators=(',', ':'))
 
-    # Leer plantilla HTML
     with open(TEMPLATE_HTML, encoding='utf-8') as f:
         html = f.read()
 
-    # Insertar los datos justo antes del primer <script> principal
-    # (el que contiene las constantes de la app)
     supabase_js = (
         f'window._SUPABASE_URL={json.dumps(SUPABASE_URL)};'
         f'window._SUPABASE_ANON_KEY={json.dumps(SUPABASE_ANON_KEY)};'
     )
     inject = f'<script>window._CATALOG={catalog_json};{supabase_js}</script>\n  '
-    html = html.replace('<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS',
-                        inject + '<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS')
-
-    # Actualizar el mensaje "no catálogo" para modo offline
+    html = html.replace(
+        '<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS',
+        inject + '<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS'
+    )
     html = html.replace(
         'python export_catalog.py</div>',
         'python export_standalone.py</div>'
     )
 
-    # Guardar
     Path(OUTPUT_HTML).parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
         f.write(html)
 
     size_mb = Path(OUTPUT_HTML).stat().st_size / 1e6
-    print(f'\n✓  Archivo generado: {OUTPUT_HTML}')
+    print(f'\n✓  Generado: {OUTPUT_HTML}')
     print(f'   Tamaño: {size_mb:.1f} MB  |  {len(catalog["pairs"]):,} pares')
     print()
-    print('Próximos pasos:')
-    print('  1. AirDrop de  mobile_app/GalPairs.html  al iPhone')
-    print('  2. En el iPhone: Archivos → GalPairs.html → Abrir con Safari')
-    print('  3. Clasificar en cualquier lugar con internet 🌌')
+    print('Siguiente paso — publicar en GitHub Pages:')
+    print('  git add mobile/GalPairs.html')
+    print('  git commit -m "update catalog"')
+    print('  git push')
     print()
-    print('Para importar de vuelta al escritorio:')
-    print('  python import_from_mobile.py mobile_cl_YYYY-MM-DD.json')
+    print(f'URL pública: https://fjbautistas.github.io/Galaxy-Pair-Inspector/mobile/GalPairs.html')
+    print()
+    print('Cada usuario que abra esa URL se registra automáticamente en Supabase.')
 
 
 if __name__ == '__main__':

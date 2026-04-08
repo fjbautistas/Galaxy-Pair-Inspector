@@ -38,6 +38,27 @@ _SUPA_URL        = _env.get('SUPABASE_URL', '').rstrip('/')
 _SUPA_ANON_KEY   = _env.get('SUPABASE_ANON_KEY', '')
 DESKTOP_DEVICE_ID = 'DESKTOP'
 
+def _fetch_partition(device_id: str) -> 'dict | None':
+    """Consulta la tabla partitions de Supabase y devuelve la fila del device_id,
+    o None si no hay conexión o el dispositivo no está registrado."""
+    if not _SUPA_URL or not _SUPA_ANON_KEY:
+        return None
+    try:
+        import urllib.request as _urlreq
+        url = (f'{_SUPA_URL}/rest/v1/partitions'
+               f'?device_id=eq.{device_id}&select=*&limit=1')
+        req = _urlreq.Request(url, headers={
+            'apikey':        _SUPA_ANON_KEY,
+            'Authorization': f'Bearer {_SUPA_ANON_KEY}',
+            'Accept':        'application/json',
+        })
+        with _urlreq.urlopen(req, timeout=8) as resp:
+            rows = json.loads(resp.read().decode('utf-8'))
+            return rows[0] if rows else None
+    except Exception:
+        return None
+
+
 def _supabase_upsert(id_par: int, classification: str):
     """Upserts a single classification to Supabase in a background thread."""
     if not _SUPA_URL or not _SUPA_ANON_KEY:
@@ -68,11 +89,7 @@ def _supabase_upsert(id_par: int, classification: str):
 # CONFIGURACIÓN — mismo estilo que el notebook
 # ══════════════════════════════════════════════════════════════════════════════
 
-CATALOG_PATH = (
-    '/Users/frank/Documents/Estudio-PhD/Semestre-2025-II/Tesis_I/'
-    'Galaxy_Pairs/Galaxy_pairs/outputs/catalogs/interacting/'
-    'DESI_int_legacyID_pairs.parquet'
-)
+CATALOG_PATH = 'data/DESI_int_legacyID_pairs.parquet'
 
 PROGRESS_FILE  = 'outputs/catalogs/progress.json'
 OUTPUT_CSV     = 'outputs/catalogs/false_positives.csv'
@@ -319,7 +336,8 @@ class PairValidator:
     """Gestiona el índice de revisión y las tres listas de clasificación."""
 
     def __init__(self, catalog_path, progress_file,
-                 fp_img_dir, pm_img_dir, pair_img_dir, rp_max_kpc=None):
+                 fp_img_dir, pm_img_dir, pair_img_dir, rp_max_kpc=None,
+                 partition: 'dict | None' = None):
         self.progress_file = progress_file
         self.fp_img_dir    = Path(fp_img_dir)
         self.pm_img_dir    = Path(pm_img_dir)
@@ -344,10 +362,30 @@ class PairValidator:
                 break
 
         if rp_max_kpc is not None and self.rp_col:
-            self.df = df_full[df_full[self.rp_col] < rp_max_kpc].reset_index(drop=True)
-            print(f'Filtro rp < {rp_max_kpc} kpc: {len(df_full):,} → {len(self.df):,} pares')
+            df_filtered = df_full[df_full[self.rp_col] < rp_max_kpc].reset_index(drop=True)
+            print(f'Filtro rp < {rp_max_kpc} kpc: {len(df_full):,} → {len(df_filtered):,} pares')
         else:
-            self.df = df_full.reset_index(drop=True)
+            df_filtered = df_full.reset_index(drop=True)
+
+        # ── Aplicar partición (calibración + bloque de trabajo) ───────────────
+        if partition:
+            calib_seed  = int(partition.get('calib_seed',  0))
+            work_start  = int(partition.get('work_start',  0))
+            work_end    = int(partition.get('work_end',    len(df_filtered)))
+            calib_size  = min(work_start, len(df_filtered))   # = 150 normalmente
+
+            calib_block = (df_filtered.iloc[:calib_size]
+                           .sample(frac=1, random_state=calib_seed)
+                           .reset_index(drop=True))
+            work_block  = df_filtered.iloc[work_start:work_end].reset_index(drop=True)
+            self.df     = pd.concat([calib_block, work_block], ignore_index=True)
+            self.work_end_local = len(calib_block) + len(work_block)  # límite en df local
+            print(f'Partición: calibración={len(calib_block)} pares (seed={calib_seed}) '
+                  f'+ trabajo={len(work_block)} pares [{work_start}–{work_end}]')
+        else:
+            self.df = df_filtered
+            self.work_end_local = len(df_filtered)
+            print('Sin partición — catálogo completo')
 
         self._load_progress()
 
@@ -403,7 +441,7 @@ class PairValidator:
                             min(self.current_index + page_size, len(self.df))]
 
     def advance(self, n):
-        self.current_index = min(self.current_index + n, len(self.df))
+        self.current_index = min(self.current_index + n, self.work_end_local)
 
     def go_back(self, n):
         self.current_index = max(self.current_index - n, 0)
@@ -568,33 +606,25 @@ class PairCell:
         btn_frame.pack(pady=5)
 
         bfont = ('Arial', 11, 'bold')
-        self.btn_f = tk.Button(btn_frame, text='[F] False pos.',
-                               font=bfont, bg=BTN_GRAY, fg='#dddddd',
-                               activebackground='#606060', relief='flat',
-                               cursor='hand2', padx=8, pady=4,
-                               command=lambda: self.on_classify(self.index, 'F'))
+        self.btn_f = ttk.Button(btn_frame, text='[F] False pos.',
+                                style='Cell.TButton', cursor='hand2',
+                                command=lambda: self.on_classify(self.index, 'F'))
         self.btn_f.pack(side='left', padx=4)
 
-        self.btn_p = tk.Button(btn_frame, text='[P] Pair',
-                               font=bfont, bg=BTN_GRAY, fg='#dddddd',
-                               activebackground='#606060', relief='flat',
-                               cursor='hand2', padx=8, pady=4,
-                               command=lambda: self.on_classify(self.index, 'P'))
+        self.btn_p = ttk.Button(btn_frame, text='[P] Pair',
+                                style='Cell.TButton', cursor='hand2',
+                                command=lambda: self.on_classify(self.index, 'P'))
         self.btn_p.pack(side='left', padx=4)
 
-        self.btn_m = tk.Button(btn_frame, text='[M] Merger',
-                               font=bfont, bg=BTN_GRAY, fg='#dddddd',
-                               activebackground='#606060', relief='flat',
-                               cursor='hand2', padx=8, pady=4,
-                               command=lambda: self.on_classify(self.index, 'M'))
+        self.btn_m = ttk.Button(btn_frame, text='[M] Merger',
+                                style='Cell.TButton', cursor='hand2',
+                                command=lambda: self.on_classify(self.index, 'M'))
         self.btn_m.pack(side='left', padx=4)
 
         # Botón de reintento — solo visible cuando la descarga falló
-        self.btn_retry_img = tk.Button(
+        self.btn_retry_img = ttk.Button(
             self.frame, text='🔄  Retry download',
-            font=('Arial', 10), bg='#3a2000', fg='#ffaa44',
-            activebackground='#704000', relief='flat', cursor='hand2',
-            padx=8, pady=3,
+            style='Retry.TButton', cursor='hand2',
             command=lambda: self.on_retry(self.index))
         # Se muestra/oculta dinámicamente en load()
 
@@ -668,16 +698,16 @@ class PairCell:
         is_pm  = validator.is_possible_merger(self.row_data)
         is_par = validator.is_confirmed_pair(self.row_data)
 
-        # Solo cambia el texto (✓) y el relieve — el color gris se mantiene siempre
-        self.btn_f.config(
-            relief='groove' if is_fp  else 'flat',
-            text='[F] False pos. ✓' if is_fp  else '[F] False pos.')
-        self.btn_p.config(
-            relief='groove' if is_par else 'flat',
-            text='[P] Pair ✓'        if is_par else '[P] Pair')
-        self.btn_m.config(
-            relief='groove' if is_pm  else 'flat',
-            text='[M] Merger ✓'     if is_pm  else '[M] Merger')
+        # Cambia texto (✓) y estilo ttk según clasificación activa
+        self.btn_f.configure(
+            style='CellActive.TButton' if is_fp  else 'Cell.TButton',
+            text='[F] False pos. ✓'    if is_fp  else '[F] False pos.')
+        self.btn_p.configure(
+            style='CellActive.TButton' if is_par else 'Cell.TButton',
+            text='[P] Pair ✓'          if is_par else '[P] Pair')
+        self.btn_m.configure(
+            style='CellActive.TButton' if is_pm  else 'Cell.TButton',
+            text='[M] Merger ✓'        if is_pm  else '[M] Merger')
 
         # Fondo del frame según clasificación
         if is_fp:
@@ -712,9 +742,9 @@ class PairCell:
         self.canvas.config(bg=BG_DEFAULT)
         self._coord_var.set('')
         self.btn_retry_img.pack_forget()
-        self.btn_f.config(bg=BTN_GRAY, relief='flat', text='[F] False pos.')
-        self.btn_p.config(bg=BTN_GRAY, relief='flat', text='[P] Pair')
-        self.btn_m.config(bg=BTN_GRAY, relief='flat', text='[M] Merger')
+        self.btn_f.configure(style='Cell.TButton', text='[F] False pos.')
+        self.btn_p.configure(style='Cell.TButton', text='[P] Pair')
+        self.btn_m.configure(style='Cell.TButton', text='[M] Merger')
         self.frame.config(bg=BG_DEFAULT, highlightbackground='#444')
 
 
@@ -761,6 +791,61 @@ class PairInspectorApp:
         self.root.title('Galaxy Pair Inspector')
         self.root.configure(bg='#111111')
 
+        # ── Estilos ttk para botones de celda (fix macOS aqua theme) ──────────
+        _s = ttk.Style()
+        _s.theme_use('clam')
+        _s.configure('Cell.TButton',
+                      background=BTN_GRAY, foreground='white',
+                      font=('Arial', 11, 'bold'),
+                      borderwidth=0, focusthickness=0, focuscolor='none',
+                      padding=(8, 4))
+        _s.map('Cell.TButton',
+               background=[('active', '#606060'), ('pressed', '#505050')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+        _s.configure('CellActive.TButton',
+                      background='#666666', foreground='white',
+                      font=('Arial', 11, 'bold'),
+                      borderwidth=1, focusthickness=0, focuscolor='none',
+                      padding=(8, 4), relief='groove')
+        _s.map('CellActive.TButton',
+               background=[('active', '#707070'), ('pressed', '#505050')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+        _s.configure('Retry.TButton',
+                      background='#3a2000', foreground='#ffaa44',
+                      font=('Arial', 10),
+                      borderwidth=0, focusthickness=0, focuscolor='none',
+                      padding=(8, 3))
+        _s.map('Retry.TButton',
+               background=[('active', '#704000'), ('pressed', '#502800')],
+               foreground=[('active', '#ffaa44'), ('pressed', '#ffaa44')])
+
+        # Estilos para botones de la barra superior
+        _nav = dict(font=('Arial', 11, 'bold'),
+                    borderwidth=0, focusthickness=0, focuscolor='none',
+                    padding=(10, 4))
+        _s.configure('Nav.Prev.TButton',   foreground='white', background='#2a4a6a', **_nav)
+        _s.map('Nav.Prev.TButton',
+               background=[('active', '#3a6a9a'), ('pressed', '#1a3050')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+        _s.configure('Nav.Next.TButton',   foreground='white', background='#2a6a4a', **_nav)
+        _s.map('Nav.Next.TButton',
+               background=[('active', '#3a9a6a'), ('pressed', '#1a5030')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+        _s.configure('Nav.Retry.TButton',  foreground='#ffaa44', background='#3a2800', **_nav)
+        _s.map('Nav.Retry.TButton',
+               background=[('active', '#6a4800'), ('pressed', '#2a1800')],
+               foreground=[('active', '#ffaa44'), ('pressed', '#ffaa44')])
+        _s.configure('Nav.Export.TButton', foreground='white', background='#6a3a1a', **_nav)
+        _s.map('Nav.Export.TButton',
+               background=[('active', '#8a5a3a'), ('pressed', '#4a2a0a')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+        _s.configure('Nav.Go.TButton',     foreground='white', background='#2a4a6a',
+                     font=('Arial', 11, 'bold'),
+                     borderwidth=0, focusthickness=0, focuscolor='none', padding=(8, 4))
+        _s.map('Nav.Go.TButton',
+               background=[('active', '#3a6a9a'), ('pressed', '#1a3050')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+
         # ── Barra superior ────────────────────────────────────────────────────
         top = tk.Frame(self.root, bg='#111111', pady=4)
         top.pack(fill='x', padx=8)
@@ -774,24 +859,21 @@ class PairInspectorApp:
         self.lbl_counts.pack(side='left', padx=16)
 
         # Botones de la barra superior
-        btn_cfg = dict(font=('Arial', 11, 'bold'), relief='flat',
-                       padx=10, pady=4, cursor='hand2')
-
-        self.btn_prev = tk.Button(top, text='◀ Previous', bg='#2a4a6a', fg='white',
-                                  **btn_cfg, command=self._prev_page)
+        self.btn_prev = ttk.Button(top, text='◀ Previous', style='Nav.Prev.TButton',
+                                   cursor='hand2', command=self._prev_page)
         self.btn_prev.pack(side='left', padx=4)
 
-        self.btn_next = tk.Button(top, text='Next ▶', bg='#2a6a4a', fg='white',
-                                  **btn_cfg, command=self._next_page)
+        self.btn_next = ttk.Button(top, text='Next ▶', style='Nav.Next.TButton',
+                                   cursor='hand2', command=self._next_page)
         self.btn_next.pack(side='left', padx=4)
 
-        self.btn_retry_all = tk.Button(top, text='🔄 Retry page',
-                                       bg='#3a2800', fg='#ffaa44',
-                                       **btn_cfg, command=self._retry_page)
+        self.btn_retry_all = ttk.Button(top, text='🔄 Retry page',
+                                        style='Nav.Retry.TButton',
+                                        cursor='hand2', command=self._retry_page)
         self.btn_retry_all.pack(side='left', padx=4)
 
-        tk.Button(top, text='Export CSV (Ctrl+E)', bg='#6a3a1a', fg='white',
-                  **btn_cfg, command=self._export).pack(side='left', padx=4)
+        ttk.Button(top, text='Export CSV (Ctrl+E)', style='Nav.Export.TButton',
+                   cursor='hand2', command=self._export).pack(side='left', padx=4)
 
         # ── Menú ⚙ con opciones avanzadas (Limpiar guardadas, etc.) ──────────
         options_mb = tk.Menubutton(top, text='⚙', font=('Arial', 13, 'bold'),
@@ -803,6 +885,9 @@ class PairInspectorApp:
                                bg='#2a2a2a', fg='white',
                                activebackground='#444444',
                                font=('Arial', 11))
+        options_menu.add_command(label='☁  Sync stats (Supabase)',
+                                 command=self._sync_stats)
+        options_menu.add_separator()
         options_menu.add_command(label='🧹  Limpiar imágenes guardadas (una sola vez)',
                                  command=self._clean_saved_images)
         options_mb['menu'] = options_menu
@@ -819,10 +904,9 @@ class PairInspectorApp:
                                 insertbackground='white', relief='flat')
         search_entry.pack(side='left', padx=(2, 4))
         search_entry.bind('<Return>', lambda e: self._search_pair())
-        tk.Button(top, text='Go', bg='#2a4a6a', fg='white',
-                  font=('Arial', 11, 'bold'), relief='flat',
-                  cursor='hand2', padx=8, pady=4,
-                  command=self._search_pair).pack(side='left')
+        ttk.Button(top, text='Go', style='Nav.Go.TButton',
+                   cursor='hand2',
+                   command=self._search_pair).pack(side='left')
 
         self.lbl_status = tk.Label(top, text='Loading…', bg='#111111',
                                    fg='#888888', font=('Arial', 10, 'italic'))
@@ -1162,6 +1246,148 @@ class PairInspectorApp:
         self.v.save_progress()
         self.lbl_status.config(text=f'Saved  {datetime.now().strftime("%H:%M:%S")}')
 
+    def _sync_stats(self):
+        """Consulta Supabase y muestra estadísticas globales con barras por dispositivo."""
+        if not _SUPA_URL or not _SUPA_ANON_KEY:
+            messagebox.showwarning('Sync stats', 'Supabase no configurado (.env).')
+            return
+        self.lbl_status.config(text='Consultando Supabase…')
+        self.root.update_idletasks()
+
+        try:
+            resp = requests.get(
+                f'{_SUPA_URL}/rest/v1/clasificaciones?select=device_id,classification',
+                headers={
+                    'apikey':        _SUPA_ANON_KEY,
+                    'Authorization': f'Bearer {_SUPA_ANON_KEY}',
+                    'Accept':        'application/json',
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        except Exception as exc:
+            self.lbl_status.config(text='Error Supabase')
+            messagebox.showerror('Sync stats', f'Error al conectar:\n{exc}')
+            return
+
+        # Agregar por dispositivo
+        totals: dict = {}
+        for row in rows:
+            dev = row.get('device_id', '?')
+            cls = row.get('classification', '?')
+            totals.setdefault(dev, {'FP': 0, 'Pair': 0, 'PM': 0})
+            if cls in totals[dev]:
+                totals[dev][cls] += 1
+
+        total_global = len(rows)
+        self.lbl_status.config(text=f'Supabase: {total_global:,} total')
+        self._show_stats_window(totals, total_global)
+
+    def _show_stats_window(self, totals: dict, total_global: int):
+        """Abre una ventana con barras horizontales apiladas por dispositivo."""
+        COLORS  = {'FP': '#c0392b', 'Pair': '#27ae60', 'PM': '#e67e22'}
+        BG      = '#1a1a1a'
+        FG      = '#dddddd'
+        BAR_H   = 22
+        BAR_MAX = 340
+        PAD     = 14
+
+        win = tk.Toplevel(self.root)
+        win.title('Cloud Stats — Supabase')
+        win.configure(bg=BG)
+        win.resizable(False, False)
+
+        # ── Totales globales ──────────────────────────────────────────────────
+        global_counts = {'FP': 0, 'Pair': 0, 'PM': 0}
+        for d in totals.values():
+            for k in global_counts:
+                global_counts[k] += d[k]
+
+        header = tk.Frame(win, bg=BG, padx=PAD, pady=PAD)
+        header.pack(fill='x')
+        tk.Label(header, text=f'Total global: {total_global:,} clasificaciones',
+                 bg=BG, fg='white', font=('Arial', 14, 'bold')).pack(anchor='w')
+
+        canvas_g = tk.Canvas(header, width=BAR_MAX, height=BAR_H + 4,
+                              bg=BG, highlightthickness=0)
+        canvas_g.pack(anchor='w', pady=(6, 2))
+        self._draw_stacked_bar(canvas_g, global_counts, total_global,
+                               BAR_MAX, BAR_H, COLORS)
+
+        # Leyenda
+        leg = tk.Frame(header, bg=BG)
+        leg.pack(anchor='w', pady=(6, 0))
+        for label, color in COLORS.items():
+            f = tk.Frame(leg, bg=BG)
+            f.pack(side='left', padx=(0, 16))
+            tk.Canvas(f, width=14, height=14, bg=color,
+                      highlightthickness=0).pack(side='left', padx=(0, 4))
+            tk.Label(f, text=f'{label}  {global_counts[label]:,}',
+                     bg=BG, fg=FG, font=('Arial', 10)).pack(side='left')
+
+        ttk.Separator(win, orient='horizontal').pack(fill='x', padx=PAD, pady=(PAD, 0))
+
+        # ── Por dispositivo ───────────────────────────────────────────────────
+        tk.Label(win, text='Por dispositivo', bg=BG, fg='#777777',
+                 font=('Arial', 10, 'italic')).pack(anchor='w', padx=PAD, pady=(8, 2))
+
+        max_dev = max((sum(d.values()) for d in totals.values()), default=1)
+
+        for dev in sorted(totals):
+            d        = totals[dev]
+            subtotal = sum(d.values())
+
+            row_f = tk.Frame(win, bg=BG, padx=PAD, pady=4)
+            row_f.pack(fill='x')
+
+            tk.Label(row_f, text=dev, bg=BG, fg=FG,
+                     font=('Arial', 11, 'bold'), width=18,
+                     anchor='w').pack(side='left')
+
+            col_r = tk.Frame(row_f, bg=BG)
+            col_r.pack(side='left')
+
+            canvas_d = tk.Canvas(col_r, width=BAR_MAX, height=BAR_H,
+                                 bg=BG, highlightthickness=0)
+            canvas_d.pack(anchor='w')
+            self._draw_stacked_bar(canvas_d, d, max_dev, BAR_MAX, BAR_H, COLORS)
+
+            tk.Label(col_r,
+                     text=f'{subtotal:,} total  —  FP={d["FP"]}  Pair={d["Pair"]}  PM={d["PM"]}',
+                     bg=BG, fg='#888888', font=('Arial', 9)).pack(anchor='w', pady=(2, 0))
+
+        # ── Cerrar ────────────────────────────────────────────────────────────
+        tk.Button(win, text='Cerrar', command=win.destroy,
+                  bg='#333333', fg='white', activeforeground='white',
+                  activebackground='#555555', relief='flat',
+                  highlightthickness=0, highlightbackground='#333333',
+                  font=('Arial', 11), padx=16, pady=6,
+                  cursor='hand2').pack(pady=PAD)
+
+    @staticmethod
+    def _draw_stacked_bar(canvas, counts: dict, scale_max: int,
+                          bar_max: int, bar_h: int, colors: dict):
+        """Dibuja una barra horizontal apilada FP | Pair | PM."""
+        if scale_max == 0:
+            return
+        x = 0
+        for key in ('FP', 'Pair', 'PM'):
+            n = counts[key]
+            if n == 0:
+                continue
+            w = max(1, round(n / scale_max * bar_max))
+            canvas.create_rectangle(x, 0, x + w, bar_h,
+                                    fill=colors[key], outline='')
+            if w > 24:
+                canvas.create_text(x + w // 2, bar_h // 2,
+                                   text=str(n), fill='white',
+                                   font=('Arial', 9, 'bold'))
+            x += w
+        if x < bar_max:
+            canvas.create_rectangle(x, 0, bar_max, bar_h,
+                                    fill='#2a2a2a', outline='')
+
     def _export(self):
         self.v.save_progress()
         resultado = self.v.export_csv()
@@ -1300,20 +1526,26 @@ class PairInspectorApp:
             self._update_status_bar()
 
         btn_f = tk.Button(bf, text='[F] False pos.', font=bfont,
-                          bg=BTN_GRAY, fg='#dddddd', activebackground='#606060',
-                          relief='flat', cursor='hand2', padx=10, pady=5,
+                          bg=BTN_GRAY, fg='white', activebackground='#606060',
+                          activeforeground='white', relief='flat',
+                          highlightthickness=0, highlightbackground=BTN_GRAY,
+                          cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('F'))
         btn_f.pack(side='left', padx=6)
 
         btn_p = tk.Button(bf, text='[P] Pair', font=bfont,
-                          bg=BTN_GRAY, fg='#dddddd', activebackground='#606060',
-                          relief='flat', cursor='hand2', padx=10, pady=5,
+                          bg=BTN_GRAY, fg='white', activebackground='#606060',
+                          activeforeground='white', relief='flat',
+                          highlightthickness=0, highlightbackground=BTN_GRAY,
+                          cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('P'))
         btn_p.pack(side='left', padx=6)
 
         btn_m = tk.Button(bf, text='[M] Merger', font=bfont,
-                          bg=BTN_GRAY, fg='#dddddd', activebackground='#606060',
-                          relief='flat', cursor='hand2', padx=10, pady=5,
+                          bg=BTN_GRAY, fg='white', activebackground='#606060',
+                          activeforeground='white', relief='flat',
+                          highlightthickness=0, highlightbackground=BTN_GRAY,
+                          cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('M'))
         btn_m.pack(side='left', padx=6)
 
@@ -1461,6 +1693,15 @@ class PairInspectorApp:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    # Consultar partición asignada a este dispositivo
+    print(f'Consultando partición para {DESKTOP_DEVICE_ID}…')
+    partition = _fetch_partition(DESKTOP_DEVICE_ID)
+    if partition:
+        print(f'  Partición: work [{partition["work_start"]}–{partition["work_end"]}], '
+              f'calib_seed={partition["calib_seed"]}')
+    else:
+        print('  Sin conexión o sin partición registrada — modo catálogo completo')
+
     # Inicializar validador (carga catálogo y progreso previo)
     try:
         validator = PairValidator(
@@ -1470,6 +1711,7 @@ def main():
             pm_img_dir    = PM_IMG_DIR,
             pair_img_dir  = PAIR_IMG_DIR,
             rp_max_kpc    = RP_MAX_KPC,
+            partition     = partition,
         )
     except FileNotFoundError as e:
         # Mostrar error con Tkinter en lugar de trazar un crash en terminal
@@ -1500,6 +1742,15 @@ def main():
         root.attributes('-alpha', 0.999)
     except tk.TclError:
         pass
+
+    # ── Ajuste dinámico de CELL_SIZE según altura de pantalla ─────────────────
+    # Altura disponible = pantalla - barra superior (~65px) - separador - padding
+    # Cada fila de celda ocupa: canvas + coord_label(25) + btns(38) + paddings(20) = canvas + 83
+    # → canvas = (disponible / GRID_ROWS) - 83, acotado entre 280 y 420
+    global CELL_SIZE
+    _screen_h = root.winfo_screenheight()
+    _available = _screen_h - 65
+    CELL_SIZE = max(280, min(420, (_available // GRID_ROWS) - 83))
 
     # Maximizar ventana (macOS y Linux)
     try:
