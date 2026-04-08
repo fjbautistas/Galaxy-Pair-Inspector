@@ -45,6 +45,27 @@ TEMPLATE_HTML  = 'mobile_app/index.html'
 OUTPUT_HTML    = 'mobile_app/GalPairs.html'
 RP_MAX_KPC     = 12.0
 
+# ── Supabase (auto-guardado desde la app móvil) ───────────────────────────────
+# La anon key es segura para incluir en el HTML público (solo permite INSERT/UPDATE
+# en la tabla 'clasificaciones', gracias a las RLS policies).
+# Leemos del .env para no duplicar la configuración.
+def _load_env(path='.env'):
+    env = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    env[k.strip()] = v.strip()
+    except FileNotFoundError:
+        pass
+    return env
+
+_env = _load_env()
+SUPABASE_URL      = _env.get('SUPABASE_URL', '')
+SUPABASE_ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 def compute_sep_arcsec(df):
@@ -86,13 +107,13 @@ def build_catalog_dict():
     if 'dec_mid' not in df.columns:
         df['dec_mid'] = (df['dec1'] + df['dec2']) / 2.0
 
-    z_col = next((c for c in ('z', 'z_spec', 'z1', 'redshift') if c in df.columns), None)
+    has_z1 = 'z1' in df.columns
+    has_z2 = 'z2' in df.columns
 
     pairs = []
     for _, row in df.iterrows():
         entry = {
             'id_par':     int(row['id_par']) if 'id_par' in row else int(row.name),
-            # Coordenadas con 5 decimales (~1 mas precision) — reduce el tamaño del archivo
             'ra1':        round(float(row['ra1']),    5),
             'dec1':       round(float(row['dec1']),   5),
             'ra2':        round(float(row['ra2']),    5),
@@ -103,8 +124,10 @@ def build_catalog_dict():
         }
         if rp_col:
             entry['rp'] = round(float(row[rp_col]), 3)
-        if z_col:
-            entry['z'] = round(float(row[z_col]), 5)
+        if has_z1:
+            entry['z1'] = round(float(row['z1']), 4)
+        if has_z2:
+            entry['z2'] = round(float(row['z2']), 4)
         pairs.append(entry)
 
     # Orden aleatorio fijo — igual en todos los dispositivos que descarguen
@@ -147,7 +170,11 @@ def main():
 
     # Insertar los datos justo antes del primer <script> principal
     # (el que contiene las constantes de la app)
-    inject = f'<script>window._CATALOG={catalog_json};</script>\n  '
+    supabase_js = (
+        f'window._SUPABASE_URL={json.dumps(SUPABASE_URL)};'
+        f'window._SUPABASE_ANON_KEY={json.dumps(SUPABASE_ANON_KEY)};'
+    )
+    inject = f'<script>window._CATALOG={catalog_json};{supabase_js}</script>\n  '
     html = html.replace('<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS',
                         inject + '<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS')
 

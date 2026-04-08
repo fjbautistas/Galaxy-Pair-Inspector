@@ -407,12 +407,13 @@
   // ═══════════════════════════════════════════════════════════════════════
   // STATE
   // ═══════════════════════════════════════════════════════════════════════
-  let catalog          = [];     // array of pair objects (orden personalizado)
+  let catalog          = [];     // array de pares (orden personalizado)
   let classifications  = {};     // id_par(str) → 'FP'|'Pair'|'PM'  (mobile)
   let desktopCl        = {};     // id_par(str) → classification  (from desktop)
   let currentIndex     = 0;
   let autoAdvanceTimer = null;
   let deviceId         = '';     // ID único por dispositivo
+  const _cloudTimers   = {};     // id_par(str) → setTimeout handle (debounce nube)
 
   // ═══════════════════════════════════════════════════════════════════════
   // DEVICE ID — generado una vez y guardado en localStorage
@@ -533,12 +534,12 @@
     ctx.lineCap = 'round';
 
     // ── Línea sutil con sombra ────────────────────────────────────────
-    ctx.lineWidth   = 1.5 * scale;
-    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth   = 0.8 * scale;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(lx, ly); ctx.stroke();
 
-    ctx.lineWidth   = 0.9 * scale;
-    ctx.strokeStyle = `rgba(${r},${g},${b},0.8)`;
+    ctx.lineWidth   = 0.4 * scale;
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.75)`;
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(lx, ly); ctx.stroke();
 
     // ── Etiqueta al final de la línea ─────────────────────────────────
@@ -625,8 +626,9 @@
 
   function _renderInfo(pair, cl, id) {
     const rp  = pair.rp   !== undefined ? `${pair.rp.toFixed(1)} kpc` : '—';
-    const z   = pair.z    !== undefined ? pair.z.toFixed(3)           : '—';
     const sep = pair.sep_arcsec !== undefined ? `${pair.sep_arcsec.toFixed(1)}"` : '—';
+    const z1  = pair.z1  !== undefined ? pair.z1.toFixed(4) : '—';
+    const z2  = pair.z2  !== undefined ? pair.z2.toFixed(4) : '—';
 
     let badge = '';
     if (cl) {
@@ -640,14 +642,15 @@
       <div class="info-row">
         <span>ID: <strong>${pair.id_par}</strong></span>
         <span>rp: <strong>${rp}</strong></span>
-        <span>z: <strong>${z}</strong></span>
+        <span>sep: ${sep}</span>
       </div>
       <div class="info-row" style="margin-top:4px;font-size:11px">
-        <span>G1: ${pair.ra1.toFixed(4)}°, ${pair.dec1.toFixed(4)}°</span>
-        <span>G2: ${pair.ra2.toFixed(4)}°, ${pair.dec2.toFixed(4)}°</span>
+        <span style="color:#ff7a6a">G1: ${pair.ra1.toFixed(4)}°, ${pair.dec1.toFixed(4)}°</span>
+        <span style="color:#55aaff">G2: ${pair.ra2.toFixed(4)}°, ${pair.dec2.toFixed(4)}°</span>
       </div>
       <div class="info-row" style="margin-top:2px;font-size:11px">
-        <span>sep: ${sep}</span>
+        <span style="color:#ff7a6a">z₁ = <strong style="color:#ffb3a8">${z1}</strong></span>
+        <span style="color:#55aaff">z₂ = <strong style="color:#a8d4ff">${z2}</strong></span>
         <span style="color:#555">doble toque → Sky Viewer</span>
       </div>
       ${badge}
@@ -672,8 +675,10 @@
 
     if (classifications[id] === type) {
       delete classifications[id];               // deselect (toggle off)
+      cancelCloudSave(pair.id_par);             // cancela envío pendiente si lo hay
     } else {
       classifications[id] = type;
+      scheduleCloudSave(pair.id_par, type);     // auto-guarda en nube tras 3 s
       autoAdvanceTimer = setTimeout(() => navigate(1), 650);
     }
 
@@ -817,6 +822,45 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // CLOUD SAVE (Supabase — auto-guardado con debounce de 3 s)
+  // ═══════════════════════════════════════════════════════════════════════
+  function _saveToCloud(idPar, classification) {
+    const url = window._SUPABASE_URL;
+    const key = window._SUPABASE_ANON_KEY;
+    if (!url || !key) return;          // no configurado (modo dev sin export)
+
+    fetch(`${url}/rest/v1/clasificaciones`, {
+      method:  'POST',
+      headers: {
+        'apikey':        key,
+        'Authorization': `Bearer ${key}`,
+        'Content-Type':  'application/json',
+        'Prefer':        'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify([{
+        device_id:      deviceId,
+        id_par:         idPar,
+        classification: classification,
+        exported_at:    new Date().toISOString()
+      }])
+    }).catch(() => {});               // silencioso — localStorage es el respaldo
+  }
+
+  function scheduleCloudSave(idPar, classification) {
+    const key = String(idPar);
+    if (_cloudTimers[key]) clearTimeout(_cloudTimers[key]);
+    _cloudTimers[key] = setTimeout(() => {
+      delete _cloudTimers[key];
+      _saveToCloud(idPar, classification);
+    }, 3000);                         // 3 s de margen para cambiar de opinión
+  }
+
+  function cancelCloudSave(idPar) {
+    const key = String(idPar);
+    if (_cloudTimers[key]) { clearTimeout(_cloudTimers[key]); delete _cloudTimers[key]; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // EXPORT
   // ═══════════════════════════════════════════════════════════════════════
   function doExport() {
@@ -831,6 +875,8 @@
       total_classified:  entries.length,
       classifications:   entries
     };
+
+    // ── Descarga local (respaldo / importación al escritorio) ─────────────
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
