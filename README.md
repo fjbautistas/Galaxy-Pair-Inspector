@@ -80,6 +80,65 @@ The classified cutouts (256×256 px, Legacy Survey DR10 color composites) serve 
 
 ---
 
+## Cloud database setup (Supabase)
+
+Classifications are stored in a Supabase PostgreSQL database.
+To run the full pipeline you need a free Supabase account.
+
+### 1. Create a project at [supabase.com](https://supabase.com)
+
+### 2. Create the table (SQL Editor → New query)
+
+```sql
+create table clasificaciones (
+  id            bigserial primary key,
+  device_id     text        not null,
+  id_par        integer     not null,
+  classification text        not null,
+  exported_at   timestamptz,
+  created_at    timestamptz default now(),
+  unique (device_id, id_par)
+);
+
+alter table clasificaciones enable row level security;
+
+create policy "public_write"
+  on clasificaciones for all
+  using (true) with check (true);
+
+grant usage on schema public to anon;
+grant insert, update, select on table clasificaciones to anon;
+grant usage, select on sequence clasificaciones_id_seq to anon;
+```
+
+### 3. Create a `.env` file in the project root
+
+```
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+Keys are found in your Supabase project under **Settings → API**.
+
+> `.env` is in `.gitignore` — it will never be committed.
+
+### 4. Regenerate the mobile app HTML
+
+```bash
+python pipeline/export_standalone.py
+```
+
+This embeds the `anon` key into `mobile/GalPairs.html` so the app can write to the database directly from the browser. The `anon` key is safe to include in public HTML — it can only write to the `clasificaciones` table.
+
+### Running without Supabase
+
+The desktop app and mobile app work without a database configured.
+Classifications are saved locally (`outputs/catalogs/progress.json` and `localStorage`).
+The cloud sync features will simply do nothing if `.env` is missing.
+
+---
+
 ## Requirements
 
 ```bash
