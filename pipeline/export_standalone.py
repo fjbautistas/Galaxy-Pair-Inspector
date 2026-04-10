@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-CATALOG_PATH  = 'data/DESI_int_legacyID_pairs.parquet'
+CATALOG_PATH  = _env.get('PAIRS_CATALOG', '')
 PROGRESS_FILE = 'outputs/catalogs/progress.json'
 TEMPLATE_HTML = 'mobile/index.html'
 OUTPUT_HTML   = 'mobile/GalPairs.html'

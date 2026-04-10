@@ -18,7 +18,7 @@ Requiere: .env en la raíz del proyecto con SUPABASE_URL y SUPABASE_SERVICE_ROLE
 Constantes del catálogo:
     CALIB_SIZE  = 150    primeros N índices del catálogo, pool de calibración compartido
     BLOCK_SIZE  = 3000   pares de trabajo asignados por dispositivo
-    CATALOG_LEN = leído dinámicamente desde data/DESI_int_legacyID_pairs.parquet
+    catalog_len = leído dinámicamente desde la ruta PAIRS_CATALOG en .env
 """
 
 import argparse
@@ -28,11 +28,6 @@ import sys
 import urllib.request as urlreq
 from pathlib import Path
 import pyarrow.parquet as pq
-
-# ── Constantes ────────────────────────────────────────────────────────────────
-CALIB_SIZE  = 150
-BLOCK_SIZE  = 3_000
-CATALOG_LEN = pq.read_metadata('data/DESI_int_legacyID_pairs.parquet').num_rows
 
 # ── Leer .env ─────────────────────────────────────────────────────────────────
 def _load_env(path='.env'):
@@ -51,6 +46,11 @@ def _load_env(path='.env'):
 _env             = _load_env()
 SUPABASE_URL     = _env.get('SUPABASE_URL', '').rstrip('/')
 SERVICE_ROLE_KEY = _env.get('SUPABASE_SERVICE_ROLE_KEY', '')
+CATALOG_PATH     = _env.get('PAIRS_CATALOG', '')
+
+# ── Constantes ────────────────────────────────────────────────────────────────
+CALIB_SIZE = 150
+BLOCK_SIZE = 3_000
 
 # ── Helpers REST ──────────────────────────────────────────────────────────────
 def _headers():
@@ -91,6 +91,7 @@ def register(device_id: str) -> dict:
     """
     Devuelve la configuración del dispositivo (existente o recién creada).
     """
+    catalog_len = pq.read_metadata(CATALOG_PATH).num_rows
     partitions = _get_all_partitions()
 
     # ¿Ya está registrado?
@@ -107,12 +108,12 @@ def register(device_id: str) -> dict:
     work_start = max_end
     work_end   = work_start + BLOCK_SIZE
 
-    if work_start >= CATALOG_LEN:
+    if work_start >= catalog_len:
         raise RuntimeError(
-            f'Catálogo agotado: todos los {CATALOG_LEN:,} pares ya están asignados.'
+            f'Catálogo agotado: todos los {catalog_len:,} pares ya están asignados.'
         )
-    if work_end > CATALOG_LEN:
-        work_end = CATALOG_LEN  # último bloque puede ser más pequeño
+    if work_end > catalog_len:
+        work_end = catalog_len  # último bloque puede ser más pequeño
 
     calib_seed = random.randint(0, 999_999)
     _insert_partition(device_id, calib_seed, work_start, work_end)
@@ -150,6 +151,12 @@ def main():
 
     if not SUPABASE_URL or not SERVICE_ROLE_KEY:
         print('ERROR: falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en .env')
+        sys.exit(1)
+    if not CATALOG_PATH:
+        print('ERROR: falta PAIRS_CATALOG en .env')
+        sys.exit(1)
+    if not Path(CATALOG_PATH).exists():
+        print(f'ERROR: no se encontró el catálogo en {CATALOG_PATH}')
         sys.exit(1)
 
     try:
