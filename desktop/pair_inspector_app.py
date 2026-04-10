@@ -249,12 +249,12 @@ def annotate_image(img: Image.Image, row: dict, rp_col: 'str | None') -> Image.I
 
     # Sombra de las líneas (offset mínimo, sin width extra)
     for ox, oy in ((1, 0), (0, 1)):
-        odraw.line([x1+ox, y1+oy, lx1+ox, ly1+oy], fill=(0, 0, 0, 100), width=1)
-        odraw.line([x2+ox, y2+oy, lx2+ox, ly2+oy], fill=(0, 0, 0, 100), width=1)
+        odraw.line([x1+ox, y1+oy, lx1+ox, ly1+oy], fill=(0, 0, 0, 30), width=1)
+        odraw.line([x2+ox, y2+oy, lx2+ox, ly2+oy], fill=(0, 0, 0, 30), width=1)
 
     # Líneas coloreadas — un solo píxel de ancho
-    odraw.line([x1, y1, lx1, ly1], fill=(*COLOR_G1, 180), width=1)
-    odraw.line([x2, y2, lx2, ly2], fill=(*COLOR_G2, 180), width=1)
+    odraw.line([x1, y1, lx1, ly1], fill=(*COLOR_G1, 60), width=1)
+    odraw.line([x2, y2, lx2, ly2], fill=(*COLOR_G2, 60), width=1)
 
     base = Image.alpha_composite(base, overlay)
     draw = ImageDraw.Draw(base)
@@ -366,6 +366,9 @@ class PairValidator:
             print(f'Filtro rp < {rp_max_kpc} kpc: {len(df_full):,} → {len(df_filtered):,} pares')
         else:
             df_filtered = df_full.reset_index(drop=True)
+
+        # Catálogo completo (sin partición) — usado solo para búsqueda por ID
+        self.df_full = df_filtered
 
         # ── Aplicar partición (calibración + bloque de trabajo) ───────────────
         if partition:
@@ -1406,21 +1409,28 @@ class PairInspectorApp:
             messagebox.showwarning('Búsqueda', 'Escribe un número entero (ej. 10).')
             return
 
-        col = 'id_par' if 'id_par' in self.v.df.columns else None
+        # Buscar en el catálogo completo (no solo en la partición)
+        col = 'id_par' if 'id_par' in self.v.df_full.columns else None
         if col is None:
             messagebox.showwarning('Búsqueda', 'El catálogo no tiene columna id_par.')
             return
 
-        mask = self.v.df[col] == pair_id
+        mask = self.v.df_full[col] == pair_id
         if not mask.any():
-            messagebox.showwarning('Búsqueda', f'Par #{pair_id} no encontrado.')
+            messagebox.showwarning('Búsqueda', f'Par #{pair_id} no encontrado en el catálogo.')
             return
 
-        rd = self.v.df[mask].iloc[0].to_dict()
+        rd = self.v.df_full[mask].iloc[0].to_dict()
         if 'sep_arcsec' not in rd or pd.isna(rd.get('sep_arcsec', float('nan'))):
             rd['sep_arcsec'] = float(np.hypot(
                 (rd['ra1']-rd['ra2'])*np.cos(np.radians((rd['dec1']+rd['dec2'])/2))*3600,
                 (rd['dec1']-rd['dec2'])*3600))
+
+        # Indicar si el par está fuera de la partición activa
+        in_partition = mask.any() and (self.v.df[col] == pair_id).any()
+        if not in_partition:
+            self.lbl_status.config(text=f'Par #{pair_id} — fuera de tu partición (solo vista)')
+
         self._open_detail_window(rd)
 
     def _open_detail_window(self, row_data: dict):

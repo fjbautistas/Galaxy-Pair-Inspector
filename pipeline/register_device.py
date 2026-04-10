@@ -18,7 +18,7 @@ Requiere: .env en la raíz del proyecto con SUPABASE_URL y SUPABASE_SERVICE_ROLE
 Constantes del catálogo:
     CALIB_SIZE  = 150    primeros N índices del catálogo, pool de calibración compartido
     BLOCK_SIZE  = 3000   pares de trabajo asignados por dispositivo
-    CATALOG_LEN = 87731  total de pares en DESI_int_legacyID_pairs.parquet
+    CATALOG_LEN = leído dinámicamente desde data/DESI_int_legacyID_pairs.parquet
 """
 
 import argparse
@@ -27,11 +27,12 @@ import random
 import sys
 import urllib.request as urlreq
 from pathlib import Path
+import pyarrow.parquet as pq
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 CALIB_SIZE  = 150
 BLOCK_SIZE  = 3_000
-CATALOG_LEN = 87_731
+CATALOG_LEN = pq.read_metadata('data/DESI_int_legacyID_pairs.parquet').num_rows
 
 # ── Leer .env ─────────────────────────────────────────────────────────────────
 def _load_env(path='.env'):
