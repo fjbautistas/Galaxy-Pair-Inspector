@@ -549,36 +549,40 @@
             <circle cx="175" cy="28" r="0.6" fill="#fff" opacity=".3"/>
             <circle cx="12" cy="170" r="0.7" fill="#fff" opacity=".4"/>
             <circle cx="188" cy="155" r="0.8" fill="#fff" opacity=".3"/>
-            <!-- outer diffuse halo — irregular shape -->
-            <path d="M62 88 Q55 72 68 60 Q85 48 105 52 Q128 54 138 68
-                     Q150 84 144 102 Q140 118 126 126 Q108 136 88 130
-                     Q68 124 60 110 Q55 100 62 88 Z"
-                  fill="#a05000" opacity=".35"/>
-            <!-- merged body — amorphous, no symmetric cores -->
-            <path d="M74 94 Q70 80 82 72 Q96 62 112 68 Q128 74 132 88
-                     Q138 104 126 116 Q112 128 94 122 Q76 116 72 102 Q70 98 74 94 Z"
-                  fill="#d07010" opacity=".7"/>
-            <!-- irregular brightness — off-center bright knot, not a clean nucleus -->
-            <path d="M88 88 Q94 80 104 84 Q116 88 118 98 Q120 110 110 116
-                     Q98 120 90 114 Q82 106 84 96 Q85 91 88 88 Z"
-                  fill="#f0a030" opacity=".85"/>
-            <!-- faint second brightness concentration — distorted, not a clean ellipse -->
-            <path d="M96 92 Q104 86 112 92 Q118 98 112 106 Q104 112 98 106 Q92 100 96 92 Z"
-                  fill="#ffe090" opacity=".45"/>
-            <!-- tidal tails -->
-            <path d="M74 92 Q55 72 48 55" stroke="#d07010" stroke-width="2.2" fill="none" opacity=".6" stroke-linecap="round"/>
-            <path d="M128 114 Q148 132 155 148" stroke="#d07010" stroke-width="2" fill="none" opacity=".55" stroke-linecap="round"/>
-            <text x="42"  y="52"  text-anchor="middle" font-size="8" fill="#a06020" font-family="monospace" opacity=".9">tail</text>
-            <text x="158" y="153" text-anchor="start"  font-size="8" fill="#a06020" font-family="monospace" opacity=".9">tail</text>
-            <!-- leaders pointing into the merged mass (no separate cores) -->
-            <line x1="90"  y1="87" x2="76" y2="70" stroke="#ffb040" stroke-width="1" opacity=".9"/>
-            <line x1="110" y1="93" x2="126" y2="76" stroke="#ffb040" stroke-width="1" opacity=".9"/>
-            <text x="71"  y="67" text-anchor="middle" font-size="11" fill="#ffb040" font-family="monospace" font-weight="bold">G1</text>
-            <text x="129" y="73" text-anchor="start"  font-size="11" fill="#ffb040" font-family="monospace" font-weight="bold">G2</text>
+            <!-- outer diffuse shared envelope — irregular -->
+            <path d="M58 90 Q52 70 66 56 Q84 42 108 46 Q132 50 144 68
+                     Q156 86 150 108 Q144 126 126 132 Q104 140 82 132
+                     Q62 124 56 106 Q54 98 58 90 Z"
+                  fill="#7a3800" opacity=".4"/>
+            <!-- tidal tail 1 — upper left -->
+            <path d="M66 76 Q44 56 36 38" stroke="#c06010" stroke-width="2.5" fill="none" opacity=".6" stroke-linecap="round"/>
+            <!-- tidal tail 2 — lower right -->
+            <path d="M136 120 Q158 140 166 158" stroke="#c06010" stroke-width="2.2" fill="none" opacity=".55" stroke-linecap="round"/>
+            <text x="30" y="35" text-anchor="middle" font-size="8" fill="#905020" font-family="monospace">tail</text>
+            <text x="168" y="163" text-anchor="start"  font-size="8" fill="#905020" font-family="monospace">tail</text>
+            <!-- nucleus 1 — distorted, elongated toward nucleus 2 -->
+            <path d="M72 88 Q76 74 88 70 Q100 66 106 76 Q110 84 104 94
+                     Q98 104 86 104 Q74 102 70 94 Q68 91 72 88 Z"
+                  fill="#e8820a" opacity=".9"/>
+            <!-- bright core 1 — off-center, pulled toward companion -->
+            <ellipse cx="92" cy="86" rx="9" ry="6" fill="#ffc050" opacity=".85" transform="rotate(20,92,86)"/>
+            <!-- nucleus 2 — distorted, elongated toward nucleus 1 -->
+            <path d="M104 96 Q110 84 122 82 Q134 80 138 92 Q142 102 134 112
+                     Q124 120 114 116 Q104 112 102 104 Q100 100 104 96 Z"
+                  fill="#d06020" opacity=".88"/>
+            <!-- bright core 2 — off-center, pulled toward companion -->
+            <ellipse cx="118" cy="96" rx="8" ry="5" fill="#ffb060" opacity=".8" transform="rotate(-15,118,96)"/>
+            <!-- bridge between nuclei — tidal interaction -->
+            <path d="M100 90 Q104 92 108 96" stroke="#ffcc80" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
+            <!-- leaders to each nucleus -->
+            <line x1="90"  y1="80" x2="76" y2="63" stroke="#ffc050" stroke-width="1.2" opacity=".9"/>
+            <line x1="120" y1="88" x2="136" y2="71" stroke="#ffb060" stroke-width="1.2" opacity=".9"/>
+            <text x="70" y="60" text-anchor="middle" font-size="11" fill="#ffc050" font-family="monospace" font-weight="bold">G1</text>
+            <text x="139" y="68" text-anchor="start"  font-size="11" fill="#ffb060" font-family="monospace" font-weight="bold">G2</text>
           </svg>
         </div>
         <div class="tut-label" style="color:#fb8c00">🔀 Possible Merger</div>
-        <div class="tut-desc">A single irregular mass — the two galaxies have merged and their nuclei are no longer distinguishable as separate objects. Strong tidal tails are a key sign. Mark as <strong style="color:#ffcc80">PM</strong>.</div>
+        <div class="tut-desc">Two nuclei visible but heavily deformed within a shared envelope — they are being pulled toward each other. Strong tidal tails on opposite sides are the key signature. Mark as <strong style="color:#ffcc80">PM</strong>.</div>
       </div>
 
       <!-- Slide 4: Group -->
@@ -612,7 +616,41 @@
         <div class="tut-desc">3 or more galaxies physically associated (same redshift, gravitationally bound). The app marks the closest members. Mark as <strong style="color:#64b5f6">Group</strong>.</div>
       </div>
 
-      <!-- Slide 5: PP -->
+      <!-- Slide 5: FP in groups (deblending) -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <circle cx="20" cy="20" r="0.7" fill="#fff" opacity=".4"/>
+            <circle cx="175" cy="30" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="15" cy="170" r="0.8" fill="#fff" opacity=".4"/>
+            <circle cx="185" cy="160" r="0.7" fill="#fff" opacity=".3"/>
+            <circle cx="60" cy="160" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="150" cy="155" r="0.5" fill="#fff" opacity=".3"/>
+            <!-- ONE galaxy — slightly elongated, no companions -->
+            <ellipse cx="100" cy="100" rx="30" ry="18" fill="#c8a050" opacity=".85" transform="rotate(-12,100,100)"/>
+            <ellipse cx="100" cy="100" rx="14" ry="9"  fill="#f0d080" opacity=".8"  transform="rotate(-12,100,100)"/>
+            <ellipse cx="100" cy="100" rx="5"  ry="3"  fill="#fff8e0" opacity=".9"  transform="rotate(-12,100,100)"/>
+            <!-- 4 leader lines all converging on the same galaxy -->
+            <line x1="96"  y1="88"  x2="74"  y2="64"  stroke="#ff7a6a" stroke-width="1.1" opacity=".9"/>
+            <line x1="107" y1="87"  x2="130" y2="64"  stroke="#6fa8dc" stroke-width="1.1" opacity=".9"/>
+            <line x1="82"  y1="98"  x2="56"  y2="92"  stroke="#8e7cc3" stroke-width="1.1" opacity=".9"/>
+            <line x1="116" y1="102" x2="144" y2="96"  stroke="#76c47a" stroke-width="1.1" opacity=".9"/>
+            <text x="70"  y="61"  text-anchor="middle" font-size="10" fill="#ff7a6a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="134" y="61"  text-anchor="start"  font-size="10" fill="#6fa8dc" font-family="monospace" font-weight="bold">G2</text>
+            <text x="30"  y="90"  text-anchor="start"  font-size="10" fill="#8e7cc3" font-family="monospace" font-weight="bold">G3</text>
+            <text x="147" y="94"  text-anchor="start"  font-size="10" fill="#76c47a" font-family="monospace" font-weight="bold">G4</text>
+            <!-- red X overlay -->
+            <line x1="78" y1="122" x2="92" y2="138" stroke="#e53935" stroke-width="2.2" stroke-linecap="round" opacity=".85"/>
+            <line x1="92" y1="122" x2="78" y2="138" stroke="#e53935" stroke-width="2.2" stroke-linecap="round" opacity=".85"/>
+            <text x="100" y="158" text-anchor="middle" font-size="9" fill="#e53935" font-family="monospace">1 galaxy, 4 labels!</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#e53935">❌ FP in Groups</div>
+        <div class="tut-desc">The catalog shows a group of N=4, but there is only <em>one</em> real galaxy. All markers (G1–G4) point to the same object — a severe deblending error. There is no group here. Mark as <strong style="color:#ef9a9a">FP</strong>.</div>
+      </div>
+
+      <!-- Slide 6: PP -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
           <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
@@ -1628,7 +1666,7 @@
   // TUTORIAL
   // ═══════════════════════════════════════════════════════════════════════
   const TUT_KEY    = 'gpi_tutorial_done_v1';
-  const TUT_SLIDES = 7;   // número de slides
+  const TUT_SLIDES = 8;   // número de slides
 
   function openTutorial() {
     const overlay = document.getElementById('tutorialOverlay');
