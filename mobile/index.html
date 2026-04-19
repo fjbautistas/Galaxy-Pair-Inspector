@@ -1127,7 +1127,7 @@
     // Auto-skip si la imagen tarda demasiado
     let _imgTimer = setTimeout(() => {
       img.src = '';   // cancelar descarga
-      navigate(+1);   // siguiente ítem
+      skipToUnclassified(true);   // saltar al próximo no clasificado (silencioso)
     }, IMG_TIMEOUT_MS);
 
     img.onload = () => {
@@ -1287,7 +1287,7 @@
     } else {
       classifications[k] = type;
       _scheduleCloud(item, type);
-      autoAdvanceTimer = setTimeout(() => navigate(1), 650);
+      autoAdvanceTimer = setTimeout(() => skipToUnclassified(true), 650);
     }
 
     const newCl = getCl(item);
@@ -1310,14 +1310,14 @@
     showItem(next);
   }
 
-  function skipToUnclassified() {
+  function skipToUnclassified(silent = false) {
     if (!catalog.length) return;
     const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
     for (let i = 1; i <= catalog.length; i++) {
       const idx = (currentIndex + i) % catalog.length;
       if (!done.has(itemKey(catalog[idx]))) { showItem(idx); return; }
     }
-    alert('All items in the catalog have been classified! 🎉');
+    if (!silent) alert('All items in the catalog have been classified! 🎉');
   }
 
   // ═══════════════════════════════════════════════════════════════════════
