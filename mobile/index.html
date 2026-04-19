@@ -270,6 +270,69 @@
     .mbtn-primary   { background: #2a4a80; color: #fff; }
     .mbtn-secondary { background: #2a2a2a; color: #aaa; }
 
+    /* ── TUTORIAL ───────────────────────────── */
+    #tutorialOverlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: #111;
+      display: flex; flex-direction: column;
+      padding-top: var(--safe-top);
+      padding-bottom: var(--safe-bottom);
+      overflow: hidden;
+    }
+    .tut-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px 8px;
+      flex-shrink: 0;
+    }
+    .tut-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .tut-skip  {
+      font-size: 13px; color: #666; background: none; border: none;
+      cursor: pointer; padding: 4px 8px;
+    }
+    .tut-slides {
+      flex: 1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+      scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .tut-slides::-webkit-scrollbar { display: none; }
+    .tut-slide {
+      min-width: 100%; scroll-snap-align: start;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 10px 24px 0;
+    }
+    .tut-svg-wrap {
+      width: min(72vw, 280px); aspect-ratio: 1;
+      background: #1a1a1a; border-radius: 16px;
+      border: 1px solid #333;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; overflow: hidden;
+    }
+    .tut-label {
+      margin-top: 16px; font-size: 20px; font-weight: 800;
+      letter-spacing: -0.4px;
+    }
+    .tut-desc {
+      margin-top: 8px; font-size: 14px; line-height: 1.6;
+      color: #aaa; text-align: center; max-width: 320px;
+    }
+    .tut-dots {
+      display: flex; gap: 7px; justify-content: center;
+      padding: 12px 0 8px; flex-shrink: 0;
+    }
+    .tut-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #444; transition: background .25s;
+    }
+    .tut-dot.active { background: #eee; }
+    .tut-footer {
+      padding: 0 20px 16px; flex-shrink: 0;
+    }
+    .tut-btn {
+      width: 100%; padding: 15px; border-radius: 14px; border: none;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+      background: #2a4a80; color: #fff;
+    }
+
     /* ── NO CATALOG SCREEN ───────────────────── */
     #noCatalog {
       flex: 1; display: none;
@@ -294,6 +357,7 @@
   <header>
     <div class="hdr-title">🌌 GalPairs</div>
     <div class="hdr-counter" id="ctrText">— / —</div>
+    <button class="hdr-btn" onclick="openTutorial()" title="Tutorial">?</button>
     <button class="hdr-btn" onclick="openModal('stats')" title="Estadísticas">📊</button>
     <button class="hdr-btn" onclick="openModal('export')" title="Export">⬆︎</button>
   </header>
@@ -350,6 +414,233 @@
     </div>
 
   </div><!-- /mainContent -->
+
+  <!-- TUTORIAL OVERLAY -->
+  <div id="tutorialOverlay" style="display:none">
+    <div class="tut-header">
+      <div class="tut-title">🌌 How to classify</div>
+      <button class="tut-skip" onclick="closeTutorial()">Skip</button>
+    </div>
+
+    <div class="tut-slides" id="tutSlides">
+
+      <!-- Slide 0: Intro -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <!-- stars background -->
+            <circle cx="20" cy="15" r="0.8" fill="#fff" opacity=".5"/>
+            <circle cx="55" cy="30" r="0.6" fill="#fff" opacity=".4"/>
+            <circle cx="90" cy="10" r="1"   fill="#fff" opacity=".6"/>
+            <circle cx="140" cy="25" r="0.7" fill="#fff" opacity=".5"/>
+            <circle cx="170" cy="12" r="0.9" fill="#fff" opacity=".4"/>
+            <circle cx="30" cy="80" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="160" cy="70" r="0.8" fill="#fff" opacity=".4"/>
+            <circle cx="180" cy="150" r="0.7" fill="#fff" opacity=".5"/>
+            <circle cx="10" cy="160" r="0.9" fill="#fff" opacity=".3"/>
+            <circle cx="75" cy="180" r="0.6" fill="#fff" opacity=".4"/>
+            <circle cx="130" cy="190" r="0.8" fill="#fff" opacity=".5"/>
+            <!-- two galaxies approaching -->
+            <ellipse cx="80" cy="100" rx="22" ry="13" fill="#f4c97a" opacity=".9" transform="rotate(-20,80,100)"/>
+            <ellipse cx="120" cy="100" rx="18" ry="11" fill="#a8c4f0" opacity=".9" transform="rotate(15,120,100)"/>
+            <!-- tidal bridge hint -->
+            <path d="M100 97 Q108 93 103 100" stroke="#f4c97a" stroke-width="1.5" fill="none" opacity=".4"/>
+            <!-- labels -->
+            <text x="80" y="86" text-anchor="middle" font-size="10" fill="#f4c97a" font-family="monospace">G1</text>
+            <text x="120" y="86" text-anchor="middle" font-size="10" fill="#a8c4f0" font-family="monospace">G2</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#e0e0e0">Galaxy Pair Inspector</div>
+        <div class="tut-desc">You will see cutout images from the DESI Legacy Survey. Your task is to classify each object into one of 5 categories.<br><br>Swipe to learn each one →</div>
+      </div>
+
+      <!-- Slide 1: Pair -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <circle cx="30" cy="20" r="0.7" fill="#fff" opacity=".4"/>
+            <circle cx="170" cy="30" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="15" cy="150" r="0.8" fill="#fff" opacity=".4"/>
+            <circle cx="185" cy="160" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- galaxy 1 — warm ellipse -->
+            <ellipse cx="82" cy="102" rx="24" ry="14" fill="#f4c97a" opacity=".95" transform="rotate(-25,82,102)"/>
+            <ellipse cx="82" cy="102" rx="12" ry="7"  fill="#fff8e1" opacity=".7"  transform="rotate(-25,82,102)"/>
+            <!-- galaxy 2 — blue ellipse -->
+            <ellipse cx="122" cy="98" rx="19" ry="12" fill="#90b4f0" opacity=".9" transform="rotate(20,122,98)"/>
+            <ellipse cx="122" cy="98" rx="9"  ry="6"  fill="#ddeeff" opacity=".6" transform="rotate(20,122,98)"/>
+            <!-- subtle tidal arm -->
+            <path d="M103 100 Q112 88 118 93" stroke="#f4c97a" stroke-width="1.8" fill="none" opacity=".5" stroke-linecap="round"/>
+            <!-- separation arrow -->
+            <line x1="82" y1="120" x2="122" y2="120" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>
+            <text x="102" y="133" text-anchor="middle" font-size="9" fill="#777" font-family="monospace">~8 kpc</text>
+            <!-- labels -->
+            <text x="72" y="82" font-size="11" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="124" y="82" font-size="11" fill="#90b4f0" font-family="monospace" font-weight="bold">G2</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#43a047">✅ Confirmed Pair</div>
+        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. Mark as <strong style="color:#a5d6a7">Pair</strong>.</div>
+      </div>
+
+      <!-- Slide 2: FP -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <circle cx="40" cy="25" r="0.7" fill="#fff" opacity=".4"/>
+            <circle cx="160" cy="35" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="20" cy="140" r="0.8" fill="#fff" opacity=".4"/>
+            <circle cx="180" cy="170" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- galaxy 1 — large foreground -->
+            <ellipse cx="80" cy="105" rx="26" ry="15" fill="#e8b86d" opacity=".9" transform="rotate(-10,80,105)"/>
+            <ellipse cx="80" cy="105" rx="12" ry="7" fill="#fff3cc" opacity=".7" transform="rotate(-10,80,105)"/>
+            <!-- galaxy 2 — small background (different z) -->
+            <ellipse cx="128" cy="95" rx="10" ry="6" fill="#aaaaaa" opacity=".6" transform="rotate(5,128,95)"/>
+            <!-- z labels showing they're at different redshifts -->
+            <rect x="50" y="128" width="42" height="14" rx="3" fill="#1a1a1a" opacity=".8"/>
+            <text x="71" y="139" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace">z=0.05</text>
+            <rect x="108" y="110" width="42" height="14" rx="3" fill="#1a1a1a" opacity=".8"/>
+            <text x="129" y="121" text-anchor="middle" font-size="9" fill="#aaa" font-family="monospace">z=0.31</text>
+            <!-- X mark between -->
+            <line x1="100" y1="94" x2="110" y2="104" stroke="#e53935" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="110" y1="94" x2="100" y2="104" stroke="#e53935" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#e53935">❌ False Positive</div>
+        <div class="tut-desc">Two galaxies that appear close on the sky but are at very different redshifts — a projection effect, not a real pair. Mark as <strong style="color:#ef9a9a">FP</strong>.</div>
+      </div>
+
+      <!-- Slide 3: PM -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <circle cx="25" cy="18" r="0.8" fill="#fff" opacity=".4"/>
+            <circle cx="175" cy="28" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="12" cy="170" r="0.7" fill="#fff" opacity=".4"/>
+            <circle cx="188" cy="155" r="0.8" fill="#fff" opacity=".3"/>
+            <!-- merged/merging blob -->
+            <ellipse cx="95" cy="103" rx="34" ry="22" fill="#c8860a" opacity=".5" transform="rotate(-15,95,103)"/>
+            <!-- core 1 -->
+            <ellipse cx="84" cy="97" rx="16" ry="10" fill="#f4a020" opacity=".9" transform="rotate(-30,84,97)"/>
+            <ellipse cx="84" cy="97" rx="7"  ry="5"  fill="#ffe0a0" opacity=".8" transform="rotate(-30,84,97)"/>
+            <!-- core 2 -->
+            <ellipse cx="110" cy="109" rx="13" ry="9" fill="#e07030" opacity=".85" transform="rotate(20,110,109)"/>
+            <ellipse cx="110" cy="109" rx="6"  ry="4" fill="#ffd0a0" opacity=".7" transform="rotate(20,110,109)"/>
+            <!-- tidal tails -->
+            <path d="M72 90 Q50 70 45 55" stroke="#f4a020" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
+            <path d="M118 116 Q140 135 148 148" stroke="#e07030" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
+            <text x="100" y="145" text-anchor="middle" font-size="9" fill="#fb8c00" font-family="monospace" opacity=".8">tidal tails</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#fb8c00">🔀 Possible Merger</div>
+        <div class="tut-desc">Two nuclei within a shared envelope, or strong tidal tails indicating an advanced merger. The boundary with Pair is fuzzy — use your judgment. Mark as <strong style="color:#ffcc80">PM</strong>.</div>
+      </div>
+
+      <!-- Slide 4: Group -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <circle cx="22" cy="18" r="0.7" fill="#fff" opacity=".4"/>
+            <circle cx="178" cy="30" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="10" cy="170" r="0.8" fill="#fff" opacity=".4"/>
+            <circle cx="190" cy="160" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- 5 group members -->
+            <ellipse cx="100" cy="90"  rx="18" ry="11" fill="#6fa8dc" opacity=".9" transform="rotate(-10,100,90)"/>
+            <ellipse cx="100" cy="90"  rx="8"  ry="5"  fill="#c9dff5" opacity=".7" transform="rotate(-10,100,90)"/>
+            <ellipse cx="140" cy="80"  rx="13" ry="8"  fill="#76a5af" opacity=".85" transform="rotate(15,140,80)"/>
+            <ellipse cx="68"  cy="115" rx="15" ry="9"  fill="#8e7cc3" opacity=".85" transform="rotate(-20,68,115)"/>
+            <ellipse cx="130" cy="118" rx="11" ry="7"  fill="#6d9eeb" opacity=".8" transform="rotate(10,130,118)"/>
+            <ellipse cx="100" cy="140" rx="9"  ry="6"  fill="#4a86e8" opacity=".75"/>
+            <!-- leader lines -->
+            <line x1="100" y1="90"  x2="100" y2="73"  stroke="#6fa8dc" stroke-width="1" opacity=".7"/>
+            <line x1="140" y1="80"  x2="152" y2="67"  stroke="#76a5af" stroke-width="1" opacity=".7"/>
+            <line x1="68"  y1="115" x2="52"  y2="108" stroke="#8e7cc3" stroke-width="1" opacity=".7"/>
+            <line x1="130" y1="118" x2="145" y2="130" stroke="#6d9eeb" stroke-width="1" opacity=".7"/>
+            <text x="100" y="70"  text-anchor="middle" font-size="9" fill="#6fa8dc" font-family="monospace">G1</text>
+            <text x="155" y="65"  text-anchor="start"  font-size="9" fill="#76a5af" font-family="monospace">G2</text>
+            <text x="36"  y="107" text-anchor="start"  font-size="9" fill="#8e7cc3" font-family="monospace">G3</text>
+            <text x="148" y="138" text-anchor="start"  font-size="9" fill="#6d9eeb" font-family="monospace">G4</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#4488cc">⭐ Confirmed Group</div>
+        <div class="tut-desc">3 or more galaxies physically associated (same redshift, gravitationally bound). The app marks the closest members. Mark as <strong style="color:#64b5f6">Group</strong>.</div>
+      </div>
+
+      <!-- Slide 5: PP -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <circle cx="22" cy="18" r="0.7" fill="#fff" opacity=".4"/>
+            <circle cx="178" cy="30" r="0.6" fill="#fff" opacity=".3"/>
+            <circle cx="10" cy="170" r="0.8" fill="#fff" opacity=".4"/>
+            <!-- group members (faint) -->
+            <ellipse cx="52"  cy="75"  rx="10" ry="6"  fill="#6fa8dc" opacity=".45" transform="rotate(10,52,75)"/>
+            <ellipse cx="155" cy="80"  rx="11" ry="7"  fill="#76a5af" opacity=".4"  transform="rotate(-5,155,80)"/>
+            <ellipse cx="45"  cy="140" rx="9"  ry="5"  fill="#8e7cc3" opacity=".4"  transform="rotate(15,45,140)"/>
+            <ellipse cx="160" cy="145" rx="8"  ry="5"  fill="#4a86e8" opacity=".4"/>
+            <!-- the two highlighted galaxies that look like a pair -->
+            <ellipse cx="88"  cy="105" rx="20" ry="12" fill="#f4c97a" opacity=".95" transform="rotate(-20,88,105)"/>
+            <ellipse cx="88"  cy="105" rx="9"  ry="6"  fill="#fff8e1" opacity=".7"  transform="rotate(-20,88,105)"/>
+            <ellipse cx="122" cy="100" rx="16" ry="10" fill="#a8d4ff" opacity=".9"  transform="rotate(15,122,100)"/>
+            <ellipse cx="122" cy="100" rx="7"  ry="5"  fill="#e0f0ff" opacity=".65" transform="rotate(15,122,100)"/>
+            <!-- highlight ring around the pair -->
+            <ellipse cx="104" cy="103" rx="36" ry="24" fill="none" stroke="#4dccaa" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7" transform="rotate(-10,104,103)"/>
+            <!-- labels -->
+            <text x="78" y="86"  font-size="10" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="122" y="84" font-size="10" fill="#a8d4ff" font-family="monospace" font-weight="bold">G2</text>
+            <text x="104" y="142" text-anchor="middle" font-size="9" fill="#4dccaa" font-family="monospace">possible pair</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#4dccaa">👥 Possible Pair</div>
+        <div class="tut-desc">You're looking at a group, but two members stand out as a close interacting pair within it. The group context is real, but the pair deserves special attention. Mark as <strong style="color:#4dccaa">PP</strong>.</div>
+      </div>
+
+      <!-- Slide 6: Tips -->
+      <div class="tut-slide">
+        <div class="tut-svg-wrap">
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0d0d0d"/>
+            <!-- phone outline -->
+            <rect x="70" y="20" width="60" height="100" rx="10" fill="none" stroke="#444" stroke-width="2"/>
+            <rect x="78" y="28" width="44" height="68" rx="4" fill="#1a1a1a"/>
+            <!-- swipe arrow -->
+            <path d="M88 62 L112 62" stroke="#4488cc" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="M106 56 L112 62 L106 68" stroke="#4488cc" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+            <!-- double tap icon -->
+            <circle cx="100" cy="50" r="5" fill="none" stroke="#4dccaa" stroke-width="1.5"/>
+            <circle cx="100" cy="50" r="2" fill="#4dccaa"/>
+            <text x="100" y="44" text-anchor="middle" font-size="7" fill="#4dccaa" font-family="monospace">2×</text>
+            <!-- bottom home bar -->
+            <rect x="85" y="112" width="30" height="3" rx="1.5" fill="#555"/>
+            <!-- tips text -->
+            <text x="100" y="145" text-anchor="middle" font-size="10" fill="#aaa" font-family="sans-serif">💡 Tips</text>
+            <text x="100" y="160" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">swipe ← → to navigate</text>
+            <text x="100" y="173" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">double tap → Sky Viewer</text>
+            <text x="100" y="186" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">⏭ skip already classified</text>
+          </svg>
+        </div>
+        <div class="tut-label" style="color:#e0e0e0">Tips</div>
+        <div class="tut-desc">
+          <strong>Navigate:</strong> swipe left/right or use Prev/Next.<br>
+          <strong>Sky Viewer:</strong> double-tap the image for full context.<br>
+          <strong>Unsure?</strong> Use FP — better conservative than wrong.<br>
+          Your progress saves automatically.
+        </div>
+      </div>
+
+    </div><!-- /tut-slides -->
+
+    <div class="tut-dots" id="tutDots"></div>
+
+    <div class="tut-footer">
+      <button class="tut-btn" id="tutNextBtn" onclick="tutNext()">Next →</button>
+    </div>
+  </div>
 
   <!-- NO CATALOG SCREEN -->
   <div id="noCatalog">
@@ -417,7 +708,7 @@
   // CONSTANTS — match desktop app
   // ═══════════════════════════════════════════════════════════════════════
   const LS_LAYER           = 'ls-dr10';
-  const IMG_SIZE           = 256;
+  const IMG_SIZE           = 224;
   const PADDING_FACTOR     = 2.5;
   const IMG_TIMEOUT_MS     = 9000;   // auto-skip si la imagen tarda más de 9 s
   const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
@@ -726,6 +1017,20 @@
     _renderInfo(item, cl);
     _updateButtons(cl, item);
     saveState();
+    _prefetch(idx);
+  }
+
+  const _prefetchCache = {};
+  function _prefetch(currentIdx) {
+    for (let d = 1; d <= 3; d++) {
+      const ni = currentIdx + d;
+      if (ni >= catalog.length) break;
+      const url = legacyUrl(catalog[ni]);
+      if (_prefetchCache[url]) continue;
+      _prefetchCache[url] = true;
+      const pre = new Image();
+      pre.src = url;
+    }
   }
 
   function _applyBorder(cl, item) {
@@ -1237,10 +1542,74 @@
       if (currentIndex >= catalog.length) currentIndex = 0;
       showItem(currentIndex);
 
+      // Mostrar tutorial la primera vez
+      if (!localStorage.getItem(TUT_KEY)) openTutorial();
+
     } catch(err) {
       console.error('Catalog load error:', err);
       showNoCatalog();
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // TUTORIAL
+  // ═══════════════════════════════════════════════════════════════════════
+  const TUT_KEY    = 'gpi_tutorial_done_v1';
+  const TUT_SLIDES = 7;   // número de slides
+
+  function openTutorial() {
+    const overlay = document.getElementById('tutorialOverlay');
+    overlay.style.display = 'flex';
+    // Build dots
+    const dotsEl = document.getElementById('tutDots');
+    dotsEl.innerHTML = '';
+    for (let i = 0; i < TUT_SLIDES; i++) {
+      const d = document.createElement('div');
+      d.className = 'tut-dot' + (i === 0 ? ' active' : '');
+      d.onclick = () => tutGoTo(i);
+      dotsEl.appendChild(d);
+    }
+    tutGoTo(0);
+    // Sync dots on scroll
+    const slides = document.getElementById('tutSlides');
+    slides.onscroll = () => {
+      const idx = Math.round(slides.scrollLeft / slides.offsetWidth);
+      _tutSyncUI(idx);
+    };
+  }
+
+  function tutGoTo(idx) {
+    const slides = document.getElementById('tutSlides');
+    slides.scrollTo({ left: idx * slides.offsetWidth, behavior: 'smooth' });
+    _tutSyncUI(idx);
+  }
+
+  function _tutSyncUI(idx) {
+    document.querySelectorAll('.tut-dot').forEach((d, i) =>
+      d.classList.toggle('active', i === idx));
+    const btn = document.getElementById('tutNextBtn');
+    if (idx >= TUT_SLIDES - 1) {
+      btn.textContent = 'Start classifying ✓';
+      btn.style.background = '#1a5c2a';
+    } else {
+      btn.textContent = 'Next →';
+      btn.style.background = '#2a4a80';
+    }
+  }
+
+  function tutNext() {
+    const slides = document.getElementById('tutSlides');
+    const cur = Math.round(slides.scrollLeft / slides.offsetWidth);
+    if (cur >= TUT_SLIDES - 1) {
+      closeTutorial();
+    } else {
+      tutGoTo(cur + 1);
+    }
+  }
+
+  function closeTutorial() {
+    document.getElementById('tutorialOverlay').style.display = 'none';
+    localStorage.setItem(TUT_KEY, '1');
   }
 
   function showNoCatalog() {
