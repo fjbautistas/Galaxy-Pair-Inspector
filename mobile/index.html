@@ -491,32 +491,53 @@
         <div class="tut-svg-wrap">
           <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
             <rect width="200" height="200" fill="#0d0d0d"/>
-            <circle cx="40" cy="25" r="0.7" fill="#fff" opacity=".4"/>
-            <circle cx="160" cy="35" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="20" cy="140" r="0.8" fill="#fff" opacity=".4"/>
-            <circle cx="180" cy="170" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- galaxy 1 — large foreground -->
-            <ellipse cx="80" cy="105" rx="26" ry="15" fill="#e8b86d" opacity=".9" transform="rotate(-10,80,105)"/>
-            <ellipse cx="80" cy="105" rx="12" ry="7" fill="#fff3cc" opacity=".7" transform="rotate(-10,80,105)"/>
-            <!-- galaxy 2 — small background (different z) -->
-            <ellipse cx="128" cy="95" rx="10" ry="6" fill="#aaaaaa" opacity=".6" transform="rotate(5,128,95)"/>
-            <!-- z labels showing they're at different redshifts -->
-            <rect x="50" y="128" width="42" height="14" rx="3" fill="#1a1a1a" opacity=".8"/>
-            <text x="71" y="139" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace">z=0.05</text>
-            <rect x="108" y="110" width="42" height="14" rx="3" fill="#1a1a1a" opacity=".8"/>
-            <text x="129" y="121" text-anchor="middle" font-size="9" fill="#aaa" font-family="monospace">z=0.31</text>
-            <!-- leader lines + labels -->
-            <line x1="80" y1="98" x2="65" y2="82" stroke="#e8b86d" stroke-width="1" opacity=".8"/>
-            <line x1="128" y1="90" x2="138" y2="76" stroke="#aaa" stroke-width="1" opacity=".8"/>
-            <text x="60" y="80" text-anchor="middle" font-size="11" fill="#e8b86d" font-family="monospace" font-weight="bold">G1</text>
-            <text x="142" y="74" text-anchor="start"  font-size="11" fill="#aaa"    font-family="monospace" font-weight="bold">G2</text>
-            <!-- X mark between -->
-            <line x1="100" y1="94" x2="110" y2="104" stroke="#e53935" stroke-width="2.5" stroke-linecap="round"/>
-            <line x1="110" y1="94" x2="100" y2="104" stroke="#e53935" stroke-width="2.5" stroke-linecap="round"/>
+            <!-- divider -->
+            <line x1="100" y1="8" x2="100" y2="192" stroke="#2a2a2a" stroke-width="1.5"/>
+            <text x="50"  y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">projection</text>
+            <text x="150" y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">deblending</text>
+
+            <!-- LEFT: projection — two galaxies different z -->
+            <circle cx="15" cy="30" r="0.6" fill="#fff" opacity=".4"/>
+            <circle cx="85" cy="170" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- foreground galaxy -->
+            <ellipse cx="45" cy="105" rx="20" ry="12" fill="#e8b86d" opacity=".9" transform="rotate(-10,45,105)"/>
+            <ellipse cx="45" cy="105" rx="9"  ry="5"  fill="#fff3cc" opacity=".7" transform="rotate(-10,45,105)"/>
+            <!-- background galaxy (small, grey) -->
+            <ellipse cx="72" cy="92"  rx="8"  ry="5"  fill="#888" opacity=".55" transform="rotate(5,72,92)"/>
+            <!-- z badges -->
+            <rect x="18" y="125" width="36" height="12" rx="2" fill="#1a1a1a" opacity=".9"/>
+            <text x="36" y="134" text-anchor="middle" font-size="8" fill="#f4c97a" font-family="monospace">z=0.05</text>
+            <rect x="55" y="107" width="36" height="12" rx="2" fill="#1a1a1a" opacity=".9"/>
+            <text x="73" y="116" text-anchor="middle" font-size="8" fill="#888" font-family="monospace">z=0.31</text>
+            <!-- leaders -->
+            <line x1="45" y1="96" x2="34" y2="78" stroke="#e8b86d" stroke-width="1" opacity=".8"/>
+            <line x1="72" y1="87" x2="77" y2="73" stroke="#888" stroke-width="1" opacity=".8"/>
+            <text x="30" y="75" text-anchor="middle" font-size="10" fill="#e8b86d" font-family="monospace" font-weight="bold">G1</text>
+            <text x="80" y="70" text-anchor="start"  font-size="10" fill="#888"    font-family="monospace" font-weight="bold">G2</text>
+
+            <!-- RIGHT: deblending — ONE galaxy, two markers -->
+            <circle cx="115" cy="40" r="0.6" fill="#fff" opacity=".4"/>
+            <circle cx="188" cy="160" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- single galaxy, slightly elongated suggesting deblend artifact -->
+            <ellipse cx="152" cy="105" rx="24" ry="14" fill="#9fc8f0" opacity=".85" transform="rotate(-8,152,105)"/>
+            <ellipse cx="152" cy="105" rx="11" ry="7"  fill="#ddeeff" opacity=".7"  transform="rotate(-8,152,105)"/>
+            <!-- subtle "split" hint: faint secondary lobe -->
+            <ellipse cx="162" cy="100" rx="8" ry="5"  fill="#b0d4f8" opacity=".35" transform="rotate(10,162,100)"/>
+            <!-- two leaders converging on same galaxy -->
+            <line x1="143" y1="96" x2="125" y2="76" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
+            <line x1="160" y1="94" x2="172" y2="74" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
+            <text x="118" y="73" text-anchor="middle" font-size="10" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="176" y="71" text-anchor="start"  font-size="10" fill="#f4c97a" font-family="monospace" font-weight="bold">G2</text>
+            <!-- converge arrow hint -->
+            <path d="M128 82 Q152 88 168 80" stroke="#e53935" stroke-width="1.2" fill="none" stroke-dasharray="3,2" opacity=".7"/>
+            <text x="152" y="140" text-anchor="middle" font-size="8" fill="#e53935" font-family="monospace" opacity=".9">same object!</text>
           </svg>
         </div>
         <div class="tut-label" style="color:#e53935">❌ False Positive</div>
-        <div class="tut-desc">Two galaxies that appear close on the sky but are at very different redshifts — a projection effect, not a real pair. Mark as <strong style="color:#ef9a9a">FP</strong>.<br><br><span style="color:#aaa;font-size:12px">⚠️ Also applies when G1 and G2 point to the <em>same</em> galaxy — a deblending error in the catalog.</span></div>
+        <div class="tut-desc">
+          <strong>Projection:</strong> two galaxies at very different redshifts that overlap on the sky. Not a real pair.<br><br>
+          <strong>Deblending:</strong> the catalog mistakenly split one galaxy into two sources (G1 and G2 point to the same object). Both cases → <strong style="color:#ef9a9a">FP</strong>.
+        </div>
       </div>
 
       <!-- Slide 3: PM -->
@@ -528,27 +549,36 @@
             <circle cx="175" cy="28" r="0.6" fill="#fff" opacity=".3"/>
             <circle cx="12" cy="170" r="0.7" fill="#fff" opacity=".4"/>
             <circle cx="188" cy="155" r="0.8" fill="#fff" opacity=".3"/>
-            <!-- merged/merging blob -->
-            <ellipse cx="95" cy="103" rx="34" ry="22" fill="#c8860a" opacity=".5" transform="rotate(-15,95,103)"/>
-            <!-- core 1 -->
-            <ellipse cx="84" cy="97" rx="16" ry="10" fill="#f4a020" opacity=".9" transform="rotate(-30,84,97)"/>
-            <ellipse cx="84" cy="97" rx="7"  ry="5"  fill="#ffe0a0" opacity=".8" transform="rotate(-30,84,97)"/>
-            <!-- core 2 -->
-            <ellipse cx="110" cy="109" rx="13" ry="9" fill="#e07030" opacity=".85" transform="rotate(20,110,109)"/>
-            <ellipse cx="110" cy="109" rx="6"  ry="4" fill="#ffd0a0" opacity=".7" transform="rotate(20,110,109)"/>
+            <!-- outer diffuse halo — irregular shape -->
+            <path d="M62 88 Q55 72 68 60 Q85 48 105 52 Q128 54 138 68
+                     Q150 84 144 102 Q140 118 126 126 Q108 136 88 130
+                     Q68 124 60 110 Q55 100 62 88 Z"
+                  fill="#a05000" opacity=".35"/>
+            <!-- merged body — amorphous, no symmetric cores -->
+            <path d="M74 94 Q70 80 82 72 Q96 62 112 68 Q128 74 132 88
+                     Q138 104 126 116 Q112 128 94 122 Q76 116 72 102 Q70 98 74 94 Z"
+                  fill="#d07010" opacity=".7"/>
+            <!-- irregular brightness — off-center bright knot, not a clean nucleus -->
+            <path d="M88 88 Q94 80 104 84 Q116 88 118 98 Q120 110 110 116
+                     Q98 120 90 114 Q82 106 84 96 Q85 91 88 88 Z"
+                  fill="#f0a030" opacity=".85"/>
+            <!-- faint second brightness concentration — distorted, not a clean ellipse -->
+            <path d="M96 92 Q104 86 112 92 Q118 98 112 106 Q104 112 98 106 Q92 100 96 92 Z"
+                  fill="#ffe090" opacity=".45"/>
             <!-- tidal tails -->
-            <path d="M72 90 Q50 70 45 55" stroke="#f4a020" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
-            <path d="M118 116 Q140 135 148 148" stroke="#e07030" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
-            <text x="100" y="152" text-anchor="middle" font-size="9" fill="#fb8c00" font-family="monospace" opacity=".8">tidal tails</text>
-            <!-- leader lines + labels -->
-            <line x1="84" y1="90" x2="74" y2="73" stroke="#f4a020" stroke-width="1" opacity=".8"/>
-            <line x1="110" y1="102" x2="124" y2="90" stroke="#e07030" stroke-width="1" opacity=".8"/>
-            <text x="70" y="71" text-anchor="middle" font-size="11" fill="#f4a020" font-family="monospace" font-weight="bold">G1</text>
-            <text x="127" y="88" text-anchor="start"  font-size="11" fill="#e07030" font-family="monospace" font-weight="bold">G2</text>
+            <path d="M74 92 Q55 72 48 55" stroke="#d07010" stroke-width="2.2" fill="none" opacity=".6" stroke-linecap="round"/>
+            <path d="M128 114 Q148 132 155 148" stroke="#d07010" stroke-width="2" fill="none" opacity=".55" stroke-linecap="round"/>
+            <text x="42"  y="52"  text-anchor="middle" font-size="8" fill="#a06020" font-family="monospace" opacity=".9">tail</text>
+            <text x="158" y="153" text-anchor="start"  font-size="8" fill="#a06020" font-family="monospace" opacity=".9">tail</text>
+            <!-- leaders pointing into the merged mass (no separate cores) -->
+            <line x1="90"  y1="87" x2="76" y2="70" stroke="#ffb040" stroke-width="1" opacity=".9"/>
+            <line x1="110" y1="93" x2="126" y2="76" stroke="#ffb040" stroke-width="1" opacity=".9"/>
+            <text x="71"  y="67" text-anchor="middle" font-size="11" fill="#ffb040" font-family="monospace" font-weight="bold">G1</text>
+            <text x="129" y="73" text-anchor="start"  font-size="11" fill="#ffb040" font-family="monospace" font-weight="bold">G2</text>
           </svg>
         </div>
         <div class="tut-label" style="color:#fb8c00">🔀 Possible Merger</div>
-        <div class="tut-desc">Two nuclei within a shared envelope, or strong tidal tails indicating an advanced merger. The boundary with Pair is fuzzy — use your judgment. Mark as <strong style="color:#ffcc80">PM</strong>.</div>
+        <div class="tut-desc">A single irregular mass — the two galaxies have merged and their nuclei are no longer distinguishable as separate objects. Strong tidal tails are a key sign. Mark as <strong style="color:#ffcc80">PM</strong>.</div>
       </div>
 
       <!-- Slide 4: Group -->
@@ -587,29 +617,60 @@
         <div class="tut-svg-wrap">
           <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
             <rect width="200" height="200" fill="#0d0d0d"/>
-            <circle cx="22" cy="18" r="0.7" fill="#fff" opacity=".4"/>
-            <circle cx="178" cy="30" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="10" cy="170" r="0.8" fill="#fff" opacity=".4"/>
-            <!-- group members (faint) -->
-            <ellipse cx="52"  cy="75"  rx="10" ry="6"  fill="#6fa8dc" opacity=".45" transform="rotate(10,52,75)"/>
-            <ellipse cx="155" cy="80"  rx="11" ry="7"  fill="#76a5af" opacity=".4"  transform="rotate(-5,155,80)"/>
-            <ellipse cx="45"  cy="140" rx="9"  ry="5"  fill="#8e7cc3" opacity=".4"  transform="rotate(15,45,140)"/>
-            <ellipse cx="160" cy="145" rx="8"  ry="5"  fill="#4a86e8" opacity=".4"/>
-            <!-- the two highlighted galaxies that look like a pair -->
-            <ellipse cx="88"  cy="105" rx="20" ry="12" fill="#f4c97a" opacity=".95" transform="rotate(-20,88,105)"/>
-            <ellipse cx="88"  cy="105" rx="9"  ry="6"  fill="#fff8e1" opacity=".7"  transform="rotate(-20,88,105)"/>
-            <ellipse cx="122" cy="100" rx="16" ry="10" fill="#a8d4ff" opacity=".9"  transform="rotate(15,122,100)"/>
-            <ellipse cx="122" cy="100" rx="7"  ry="5"  fill="#e0f0ff" opacity=".65" transform="rotate(15,122,100)"/>
-            <!-- highlight ring around the pair -->
-            <ellipse cx="104" cy="103" rx="36" ry="24" fill="none" stroke="#4dccaa" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7" transform="rotate(-10,104,103)"/>
-            <!-- labels -->
-            <text x="78" y="86"  font-size="10" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="122" y="84" font-size="10" fill="#a8d4ff" font-family="monospace" font-weight="bold">G2</text>
-            <text x="104" y="142" text-anchor="middle" font-size="9" fill="#4dccaa" font-family="monospace">possible pair</text>
+            <!-- divider -->
+            <line x1="100" y1="8" x2="100" y2="192" stroke="#2a2a2a" stroke-width="1.5"/>
+            <text x="50"  y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">pair in group</text>
+            <text x="150" y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">deblend in group</text>
+
+            <!-- LEFT: two distinct galaxies within a group context -->
+            <circle cx="12" cy="35" r="0.6" fill="#fff" opacity=".35"/>
+            <circle cx="88" cy="175" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- faint group members -->
+            <ellipse cx="22"  cy="65"  rx="7" ry="4" fill="#6fa8dc" opacity=".35" transform="rotate(10,22,65)"/>
+            <ellipse cx="78"  cy="155" rx="7" ry="4" fill="#8e7cc3" opacity=".35" transform="rotate(-15,78,155)"/>
+            <!-- the two close galaxies (the pair) -->
+            <ellipse cx="35" cy="105" rx="14" ry="8" fill="#f4c97a" opacity=".95" transform="rotate(-15,35,105)"/>
+            <ellipse cx="35" cy="105" rx="6"  ry="4" fill="#fff8e1" opacity=".7"  transform="rotate(-15,35,105)"/>
+            <ellipse cx="65" cy="100" rx="11" ry="7" fill="#a8d4ff" opacity=".9"  transform="rotate(10,65,100)"/>
+            <ellipse cx="65" cy="100" rx="5"  ry="3" fill="#e0f0ff" opacity=".65" transform="rotate(10,65,100)"/>
+            <!-- ring around pair -->
+            <ellipse cx="49" cy="103" rx="28" ry="20" fill="none" stroke="#4dccaa" stroke-width="1.2" stroke-dasharray="3,2" opacity=".7" transform="rotate(-5,49,103)"/>
+            <!-- leaders -->
+            <line x1="35" y1="97" x2="26" y2="80" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
+            <line x1="65" y1="94" x2="72" y2="78" stroke="#a8d4ff" stroke-width="1" opacity=".9"/>
+            <text x="21" y="77" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="75" y="75" text-anchor="start"  font-size="9" fill="#a8d4ff" font-family="monospace" font-weight="bold">G2</text>
+            <text x="49" y="136" text-anchor="middle" font-size="7.5" fill="#4dccaa" font-family="monospace">pair!</text>
+
+            <!-- RIGHT: group N=3 where G1+G2 deblend same galaxy -->
+            <circle cx="115" cy="35" r="0.6" fill="#fff" opacity=".35"/>
+            <circle cx="192" cy="170" r="0.7" fill="#fff" opacity=".3"/>
+            <!-- real third galaxy (smaller, clearly separate) -->
+            <ellipse cx="175" cy="140" rx="10" ry="6" fill="#76a5af" opacity=".75" transform="rotate(10,175,140)"/>
+            <ellipse cx="175" cy="140" rx="4"  ry="3" fill="#c8e0e8" opacity=".6"  transform="rotate(10,175,140)"/>
+            <!-- single galaxy split by deblending — slightly elongated -->
+            <ellipse cx="148" cy="97" rx="22" ry="13" fill="#9fc8f0" opacity=".85" transform="rotate(-8,148,97)"/>
+            <ellipse cx="148" cy="97" rx="10" ry="6"  fill="#ddeeff" opacity=".7"  transform="rotate(-8,148,97)"/>
+            <!-- faint secondary lobe (deblend artifact) -->
+            <ellipse cx="158" cy="92" rx="8" ry="5" fill="#b8d8f8" opacity=".3" transform="rotate(12,158,92)"/>
+            <!-- G1 + G2 both point to the same galaxy -->
+            <line x1="140" y1="88" x2="124" y2="70" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
+            <line x1="157" y1="86" x2="168" y2="68" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
+            <text x="117" y="67" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="171" y="65" text-anchor="start"  font-size="9" fill="#f4c97a" font-family="monospace" font-weight="bold">G2</text>
+            <!-- G3 points to the real third galaxy -->
+            <line x1="175" y1="134" x2="182" y2="120" stroke="#76a5af" stroke-width="1" opacity=".8"/>
+            <text x="184" y="117" text-anchor="start" font-size="9" fill="#76a5af" font-family="monospace" font-weight="bold">G3</text>
+            <!-- same-object indicator -->
+            <path d="M128 76 Q148 84 164 74" stroke="#e53935" stroke-width="1.1" fill="none" stroke-dasharray="3,2" opacity=".8"/>
+            <text x="148" y="155" text-anchor="middle" font-size="7.5" fill="#e53935" font-family="monospace">G1=G2 same!</text>
           </svg>
         </div>
         <div class="tut-label" style="color:#4dccaa">👥 Possible Pair</div>
-        <div class="tut-desc">You're looking at a group, but visually only two galaxies are interacting. Multiple markers may fall on just those two objects — the catalog sees a group, but the image shows a pair. Mark as <strong style="color:#4dccaa">PP</strong>.</div>
+        <div class="tut-desc">
+          <strong>Left:</strong> two clearly distinct galaxies within a group — they look like a pair visually.<br><br>
+          <strong>Right:</strong> a group of N=3 where G1 and G2 are deblending artifacts of the same galaxy. The catalog says group, but the image shows only 2 real objects. Both cases → <strong style="color:#4dccaa">PP</strong>.
+        </div>
       </div>
 
       <!-- Slide 6: Tips -->
