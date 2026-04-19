@@ -738,7 +738,7 @@
         <div class="tut-label" style="color:#e0e0e0">Tips</div>
         <div class="tut-desc">
           <strong>Navigate:</strong> swipe left/right or use Prev/Next.<br>
-          <strong>Sky Viewer:</strong> double-tap the image for full context.<br>
+          <strong>Sky Viewer:</strong> double-tap the image to open Legacy Survey with DESI spectroscopy overlay — circles show which galaxies were observed and at what redshift.<br>
           <strong>Unsure?</strong> Use FP — better conservative than wrong.<br>
           Your progress saves automatically.
         </div>
@@ -957,7 +957,7 @@
       s  = item.sep_arcsec;
     }
     const z = s < 5 ? 16 : s < 15 ? 15 : s < 40 ? 14 : 13;
-    return `https://www.legacysurvey.org/viewer?ra=${ra}&dec=${dec}&layer=${LS_LAYER}&zoom=${z}`;
+    return `https://www.legacysurvey.org/viewer?ra=${ra}&dec=${dec}&layer=${LS_LAYER}&zoom=${z}&overlays=desi-spec-dr1`;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
