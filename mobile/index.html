@@ -419,6 +419,7 @@
   const LS_LAYER           = 'ls-dr10';
   const IMG_SIZE           = 256;
   const PADDING_FACTOR     = 2.5;
+  const IMG_TIMEOUT_MS     = 9000;   // auto-skip si la imagen tarda más de 9 s
   const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
   const GROUP_OFFSET       = 10_000_000;                 // same as desktop
   const MAX_GROUP_MARKERS  = 8;
@@ -594,20 +595,29 @@
       p.x >= -MARGIN && p.x <= sz + MARGIN &&
       p.y >= -MARGIN && p.y <= sz + MARGIN
     );
+
+    if (inside.length === 0) {
+      // Todos los miembros fuera del FOV (grupo muy extendido, típicamente z≈0)
+      ctx.font         = `bold ${Math.round(11 * scale)}px system-ui`;
+      ctx.fillStyle    = 'rgba(255,200,80,0.85)';
+      ctx.textAlign    = 'center';
+      ctx.shadowColor  = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur   = 6;
+      ctx.fillText(`N=${item.n_members} — members outside FOV`, sz / 2, sz - 14 * scale);
+      ctx.shadowBlur   = 0;
+      ctx.textAlign    = 'left';
+      return;
+    }
+
     const pool = inside.length >= 3 ? inside : positions;
     pool.sort((a, b) =>
       Math.hypot(a.x - cxC, a.y - cyC) - Math.hypot(b.x - cxC, b.y - cyC));
     const chosen = pool.slice(0, MAX_GROUP_MARKERS);
 
-    const LLEN = 22 * scale;
-    chosen.forEach(({ x, y, i }) => {
+    chosen.forEach(({ x, y, i }, rank) => {
       const color = GROUP_COLORS[i % GROUP_COLORS.length];
-      // Radial direction outward from center
-      const dx = x - cxC, dy = y - cyC;
-      const d  = Math.hypot(dx, dy) || 1;
-      const angle = Math.atan2(dy, dx);
-      _drawLeader(ctx, x, y, `G${chosen.indexOf(chosen.find(c=>c.i===i))+1}`,
-                  color, angle, scale);
+      const angle = Math.atan2(y - cyC, x - cxC);
+      _drawLeader(ctx, x, y, `G${rank + 1}`, color, angle, scale);
     });
   }
 
@@ -671,13 +681,21 @@
     document.getElementById('markerCanvas').getContext('2d')
       .clearRect(0, 0, img.naturalWidth, img.naturalHeight);
 
+    // Auto-skip si la imagen tarda demasiado
+    let _imgTimer = setTimeout(() => {
+      img.src = '';   // cancelar descarga
+      navigate(+1);   // siguiente ítem
+    }, IMG_TIMEOUT_MS);
+
     img.onload = () => {
+      clearTimeout(_imgTimer);
       overlay.style.display = 'none';
       img.style.opacity = '1';
       drawMarkers(item);
       _applyBorder(cl, item);
     };
     img.onerror = () => {
+      clearTimeout(_imgTimer);
       overlay.style.display = 'flex';
       overlay.innerHTML = `
         <div class="err-state">
