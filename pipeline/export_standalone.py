@@ -75,7 +75,7 @@ def _load_desktop_classified(progress_file):
 
 def build_catalog() -> dict:
     print('Leyendo catálogo…')
-    df = pd.read_parquet(CATALOG_PATH)
+    df = pd.read_parquet(CATALOG_PATH, engine='fastparquet')
     print(f'  {len(df):,} pares totales')
 
     rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in df.columns), None)
@@ -140,7 +140,7 @@ def _build_groups_catalog() -> list:
         return []
 
     print('Construyendo catálogo de grupos para móvil…')
-    df = pd.read_parquet(GROUPS_CATALOG_PATH)
+    df = pd.read_parquet(GROUPS_CATALOG_PATH, engine='fastparquet')
     groups = []
     for gid, edges in df.groupby('fof_component_id'):
         half1 = edges[['id1', 'ra1', 'dec1', 'z1']].rename(

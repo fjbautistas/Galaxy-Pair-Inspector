@@ -1033,9 +1033,33 @@
       Math.hypot(a.x - cxC, a.y - cyC) - Math.hypot(b.x - cxC, b.y - cyC));
     const chosen = pool.slice(0, MAX_GROUP_MARKERS);
 
-    chosen.forEach(({ x, y, i }, rank) => {
-      const color = GROUP_COLORS[i % GROUP_COLORS.length];
-      const angle = Math.atan2(y - cyC, x - cxC);
+    // Calcular ángulos radiales base
+    const markers = chosen.map(({ x, y, i }, rank) => ({
+      x, y, i, rank,
+      color: GROUP_COLORS[i % GROUP_COLORS.length],
+      angle: Math.atan2(y - cyC, x - cxC),
+    }));
+
+    // Separar ángulos que estén demasiado cerca (< MIN_ANG_SEP radianes)
+    // Itera varias pasadas para garantizar separación incluso con 3+ markers juntos
+    const MIN_ANG_SEP = 0.52;  // ~30°
+    for (let pass = 0; pass < 4; pass++) {
+      for (let a = 0; a < markers.length; a++) {
+        for (let b = a + 1; b < markers.length; b++) {
+          let da = markers[b].angle - markers[a].angle;
+          // Normalizar a [-π, π]
+          while (da >  Math.PI) da -= 2 * Math.PI;
+          while (da < -Math.PI) da += 2 * Math.PI;
+          if (Math.abs(da) < MIN_ANG_SEP) {
+            const push = (MIN_ANG_SEP - Math.abs(da)) / 2 + 0.01;
+            markers[a].angle -= Math.sign(da) * push;
+            markers[b].angle += Math.sign(da) * push;
+          }
+        }
+      }
+    }
+
+    markers.forEach(({ x, y, color, angle, rank }) => {
       _drawLeader(ctx, x, y, `G${rank + 1}`, color, angle, scale);
     });
   }
