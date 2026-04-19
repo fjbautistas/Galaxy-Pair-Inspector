@@ -14,7 +14,7 @@ y regenera el group_id original.
 
 Categorías de clasificación:
     Pares:  FP, Pair, PM
-    Grupos: FP, GROUP, PM
+    Grupos: FP, GROUP, PM, PP (posible par dentro de un grupo)
 
 Reglas:
     - Un solo voto basta para incluir un par o grupo.
@@ -50,7 +50,8 @@ def _load_env(path='.env'):
 _env         = _load_env()
 SUPABASE_URL = _env.get('SUPABASE_URL', '').rstrip('/')
 ANON_KEY     = _env.get('SUPABASE_ANON_KEY', '')
-CALIB_SIZE      = 150
+CALIB_PAIRS     = 120          # pares de calibración (índices 0–119)
+CALIB_GROUPS    = 80           # grupos de calibración (índices 0–79)
 GROUPS_OFFSET   = 10_000_000   # group_id + GROUPS_OFFSET = id_par en Supabase
 OUTPUT_DIR      = Path('outputs/catalogs')
 
@@ -152,9 +153,9 @@ def main():
     print('Aplicando mayoría de votos (pares)…')
     labeled_pairs = _majority_vote(raw_pairs)
 
-    # Separar calibración (id_par < 150) y trabajo
-    calib = [r for r in labeled_pairs if r['id_par'] <  CALIB_SIZE]
-    work  = [r for r in labeled_pairs if r['id_par'] >= CALIB_SIZE]
+    # Separar calibración (id_par < CALIB_PAIRS) y trabajo
+    calib = [r for r in labeled_pairs if r['id_par'] <  CALIB_PAIRS]
+    work  = [r for r in labeled_pairs if r['id_par'] >= CALIB_PAIRS]
 
     print('Escribiendo archivos de pares…')
     _write_csv(work,  OUTPUT_DIR / 'labels.csv')
@@ -175,15 +176,21 @@ def main():
                 'agreement':      r['agreement'],
             })
 
-        path_groups = OUTPUT_DIR / 'labels_groups.csv'
-        path_groups.parent.mkdir(parents=True, exist_ok=True)
+        # Separar calibración (group_id < CALIB_GROUPS) y trabajo
+        calib_groups = [r for r in labeled_groups if r['group_id'] <  CALIB_GROUPS]
+        work_groups  = [r for r in labeled_groups if r['group_id'] >= CALIB_GROUPS]
+
         fieldnames = ['group_id', 'classification', 'n_votes', 'agreement']
-        with open(path_groups, 'w', newline='') as f:
-            import csv
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(labeled_groups)
-        print(f'  {len(labeled_groups)} grupos  →  {path_groups}')
+        for rows, path in [
+            (work_groups,  OUTPUT_DIR / 'labels_groups.csv'),
+            (calib_groups, OUTPUT_DIR / 'labels_groups_calib.csv'),
+        ]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            print(f'  {len(rows)} grupos  →  {path}')
     else:
         print('  Sin clasificaciones de grupos aún.')
 
