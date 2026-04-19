@@ -18,6 +18,7 @@
       --fp-bg:       #5a1010;  --fp-border:   #e53935;
       --pair-bg:     #0f4020;  --pair-border: #43a047;
       --pm-bg:       #4a3000;  --pm-border:   #fb8c00;
+      --group-bg:    #0a2040;  --group-border: #4488cc;
       --safe-top:    env(safe-area-inset-top,    0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
@@ -103,9 +104,10 @@
       transition: box-shadow 0.2s;
       flex-shrink: 0;
     }
-    .img-wrapper.cl-fp   { box-shadow: 0 0 0 3px var(--fp-border); }
-    .img-wrapper.cl-pair { box-shadow: 0 0 0 3px var(--pair-border); }
-    .img-wrapper.cl-pm   { box-shadow: 0 0 0 3px var(--pm-border); }
+    .img-wrapper.cl-fp    { box-shadow: 0 0 0 3px var(--fp-border); }
+    .img-wrapper.cl-pair  { box-shadow: 0 0 0 3px var(--pair-border); }
+    .img-wrapper.cl-pm    { box-shadow: 0 0 0 3px var(--pm-border); }
+    .img-wrapper.cl-group { box-shadow: 0 0 0 3px var(--group-border); }
 
     #galaxyImg {
       width: 100%; height: 100%;
@@ -191,12 +193,14 @@
     }
     .btn-cl .ic   { font-size: 20px; line-height: 1; }
     .btn-cl .lbl  { font-size: 10px; color: #666; font-weight: 400; }
-    .btn-cl.a-fp   { background: var(--fp-bg);   border-color: var(--fp-border);   color: #fff; }
-    .btn-cl.a-fp   .lbl { color: #ffaaaa; }
-    .btn-cl.a-pair { background: var(--pair-bg); border-color: var(--pair-border); color: #fff; }
-    .btn-cl.a-pair .lbl { color: #aaffaa; }
-    .btn-cl.a-pm   { background: var(--pm-bg);   border-color: var(--pm-border);   color: #fff; }
-    .btn-cl.a-pm   .lbl { color: #ffddaa; }
+    .btn-cl.a-fp    { background: var(--fp-bg);    border-color: var(--fp-border);    color: #fff; }
+    .btn-cl.a-fp    .lbl { color: #ffaaaa; }
+    .btn-cl.a-pair  { background: var(--pair-bg);  border-color: var(--pair-border);  color: #fff; }
+    .btn-cl.a-pair  .lbl { color: #aaffaa; }
+    .btn-cl.a-pm    { background: var(--pm-bg);    border-color: var(--pm-border);    color: #fff; }
+    .btn-cl.a-pm    .lbl { color: #ffddaa; }
+    .btn-cl.a-group { background: var(--group-bg); border-color: var(--group-border); color: #fff; }
+    .btn-cl.a-group .lbl { color: #aaccff; }
 
     /* ── NAVIGATION ──────────────────────────── */
     .nav-section { padding: 4px 14px 8px; flex-shrink: 0; }
@@ -243,7 +247,7 @@
     .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
 
     .stats-grid {
-      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      display: grid; grid-template-columns: 1fr 1fr;
       gap: 10px; margin-bottom: 14px;
     }
     .stat-card {
@@ -252,9 +256,10 @@
     }
     .stat-num  { font-size: 26px; font-weight: 700; }
     .stat-lbl  { font-size: 11px; color: #777; margin-top: 2px; }
-    .c-fp   .stat-num { color: #e57373; }
-    .c-pair .stat-num { color: #66bb6a; }
-    .c-pm   .stat-num { color: #ffa726; }
+    .c-fp    .stat-num { color: #e57373; }
+    .c-pair  .stat-num { color: #66bb6a; }
+    .c-pm    .stat-num { color: #ffa726; }
+    .c-group .stat-num { color: #64b5f6; }
 
     .mbtn {
       width: 100%; padding: 14px;
@@ -372,6 +377,10 @@
           <div class="stat-num" id="sPair">0</div>
           <div class="stat-lbl">Pairs</div>
         </div>
+        <div class="stat-card c-group">
+          <div class="stat-num" id="sGroup">0</div>
+          <div class="stat-lbl">Groups</div>
+        </div>
         <div class="stat-card c-pm">
           <div class="stat-num" id="sPM">0</div>
           <div class="stat-lbl">Mergers</div>
@@ -407,21 +416,35 @@
   // ═══════════════════════════════════════════════════════════════════════
   // CONSTANTS — match desktop app
   // ═══════════════════════════════════════════════════════════════════════
-  const LS_LAYER       = 'ls-dr10';
-  const IMG_SIZE       = 256;
-  const PADDING_FACTOR = 2.5;
-  const STORAGE_KEY    = 'galaxyPairsInspector_v2';
+  const LS_LAYER           = 'ls-dr10';
+  const IMG_SIZE           = 256;
+  const PADDING_FACTOR     = 2.5;
+  const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
+  const GROUP_OFFSET       = 10_000_000;                 // same as desktop
+  const MAX_GROUP_MARKERS  = 8;
+  const GROUP_COLORS       = [
+    [255, 90,  90],  [80,  190, 255], [100, 255, 100], [255, 200, 50],
+    [255, 120, 220], [100, 255, 220], [255, 160, 80],  [200, 150, 255],
+  ];
 
   // ═══════════════════════════════════════════════════════════════════════
   // STATE
   // ═══════════════════════════════════════════════════════════════════════
-  let catalog          = [];     // array de pares (orden personalizado)
-  let classifications  = {};     // id_par(str) → 'FP'|'Pair'|'PM'  (mobile)
-  let desktopCl        = {};     // id_par(str) → classification  (from desktop)
+  let catalog          = [];   // array mezclado de pares y grupos
+  let classifications  = {};   // itemKey → 'FP'|'Pair'|'PM'|'GROUP'  (mobile)
+  let desktopCl        = {};   // id_par(str) → classification  (from desktop, pairs only)
   let currentIndex     = 0;
   let autoAdvanceTimer = null;
-  let deviceId         = '';     // ID único por dispositivo
-  const _cloudTimers   = {};     // id_par(str) → setTimeout handle (debounce nube)
+  let deviceId         = '';
+  const _cloudTimers   = {};
+
+  // ── helpers tipo item ───────────────────────────────────────────────────
+  function isGroup(item)  { return !!item.group_id; }
+  function itemKey(item)  { return isGroup(item) ? 'g_' + item.group_id : String(item.id_par); }
+  function getCl(item) {
+    const k = itemKey(item);
+    return classifications[k] || (isGroup(item) ? null : desktopCl[k]) || null;
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // DEVICE ID — generado una vez y guardado en localStorage
@@ -485,51 +508,107 @@
   // ═══════════════════════════════════════════════════════════════════════
   // URLS
   // ═══════════════════════════════════════════════════════════════════════
-  function legacyUrl(pair, bust = false) {
-    const ps = adaptivePixscale(pair.sep_arcsec).toFixed(4);
+  function legacyUrl(item, bust = false) {
+    let ra, dec, ps;
+    if (isGroup(item)) {
+      const sep = Math.max(item.max_sep_arcsec || 10, 10);
+      ps  = Math.max(0.3, Math.min(5.0, sep * PADDING_FACTOR / IMG_SIZE)).toFixed(4);
+      ra  = item.ra_center.toFixed(6);
+      dec = item.dec_center.toFixed(6);
+    } else {
+      ps  = adaptivePixscale(item.sep_arcsec).toFixed(4);
+      ra  = item.ra_mid.toFixed(6);
+      dec = item.dec_mid.toFixed(6);
+    }
     let url = `https://www.legacysurvey.org/viewer/cutout.jpg` +
-              `?ra=${pair.ra_mid.toFixed(6)}&dec=${pair.dec_mid.toFixed(6)}` +
-              `&pixscale=${ps}&layer=${LS_LAYER}&size=${IMG_SIZE}`;
+              `?ra=${ra}&dec=${dec}&pixscale=${ps}&layer=${LS_LAYER}&size=${IMG_SIZE}`;
     if (bust) url += `&_t=${Date.now()}`;
     return url;
   }
 
-  function skyViewerUrl(pair) {
-    const s = pair.sep_arcsec;
+  function skyViewerUrl(item) {
+    let ra, dec, s;
+    if (isGroup(item)) {
+      ra = item.ra_center.toFixed(6); dec = item.dec_center.toFixed(6);
+      s  = item.max_sep_arcsec || 30;
+    } else {
+      ra = item.ra_mid.toFixed(6); dec = item.dec_mid.toFixed(6);
+      s  = item.sep_arcsec;
+    }
     const z = s < 5 ? 16 : s < 15 ? 15 : s < 40 ? 14 : 13;
-    return `https://www.legacysurvey.org/viewer` +
-           `?ra=${pair.ra_mid.toFixed(6)}&dec=${pair.dec_mid.toFixed(6)}` +
-           `&layer=${LS_LAYER}&zoom=${z}`;
+    return `https://www.legacysurvey.org/viewer?ra=${ra}&dec=${dec}&layer=${LS_LAYER}&zoom=${z}`;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // MARKER DRAWING — punto pequeño + línea hacia etiqueta (leader line)
+  // MARKER DRAWING
   // ═══════════════════════════════════════════════════════════════════════
-  function drawMarkers(pair) {
+  function drawMarkers(item) {
+    if (isGroup(item)) { drawGroupMarkers(item); return; }
+
     const wrapper = document.getElementById('imgWrapper');
     const canvas  = document.getElementById('markerCanvas');
     const sz = wrapper.offsetWidth;
-
-    canvas.width  = sz;
-    canvas.height = sz;
+    canvas.width = sz; canvas.height = sz;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, sz, sz);
 
-    const ps    = adaptivePixscale(pair.sep_arcsec);
+    const ps    = adaptivePixscale(item.sep_arcsec);
     const scale = sz / IMG_SIZE;
 
-    let [x1, y1] = radecToPixel(pair.ra1, pair.dec1, pair.ra_mid, pair.dec_mid, ps);
-    let [x2, y2] = radecToPixel(pair.ra2, pair.dec2, pair.ra_mid, pair.dec_mid, ps);
+    let [x1, y1] = radecToPixel(item.ra1, item.dec1, item.ra_mid, item.dec_mid, ps);
+    let [x2, y2] = radecToPixel(item.ra2, item.dec2, item.ra_mid, item.dec_mid, ps);
     x1 *= scale; y1 *= scale;
     x2 *= scale; y2 *= scale;
 
-    // Dirección de la línea: G1 va hacia el lado opuesto de G2 para no solaparse
     const g1Left = x1 <= x2;
-    const a1 = g1Left ? -Math.PI * 3/4 : -Math.PI / 4;   // arriba-izq o arriba-der
+    const a1 = g1Left ? -Math.PI * 3/4 : -Math.PI / 4;
     const a2 = g1Left ? -Math.PI / 4   : -Math.PI * 3/4;
-
     _drawLeader(ctx, x1, y1, 'G1', [255, 100, 80],  a1, scale);
     _drawLeader(ctx, x2, y2, 'G2', [80,  190, 255], a2, scale);
+  }
+
+  function drawGroupMarkers(item) {
+    const wrapper = document.getElementById('imgWrapper');
+    const canvas  = document.getElementById('markerCanvas');
+    const sz = wrapper.offsetWidth;
+    canvas.width = sz; canvas.height = sz;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, sz, sz);
+
+    const sep   = Math.max(item.max_sep_arcsec || 10, 10);
+    const ps    = Math.max(0.3, Math.min(5.0, sep * PADDING_FACTOR / IMG_SIZE));
+    const scale = sz / IMG_SIZE;
+    const ras   = item.member_ra  || [];
+    const decs  = item.member_dec || [];
+
+    // Compute pixel positions
+    const cxC = sz / 2, cyC = sz / 2;
+    const MARGIN = 8;
+    let positions = ras.map((ra, i) => {
+      let [x, y] = radecToPixel(ra, decs[i], item.ra_center, item.dec_center, ps);
+      return { x: x * scale, y: y * scale, i };
+    });
+
+    // Prefer members inside the frame; fallback to closest to center
+    const inside = positions.filter(p =>
+      p.x >= -MARGIN && p.x <= sz + MARGIN &&
+      p.y >= -MARGIN && p.y <= sz + MARGIN
+    );
+    const pool = inside.length >= 3 ? inside : positions;
+    pool.sort((a, b) =>
+      Math.hypot(a.x - cxC, a.y - cyC) - Math.hypot(b.x - cxC, b.y - cyC));
+    const chosen = pool.slice(0, MAX_GROUP_MARKERS);
+
+    const LLEN = 22 * scale;
+    chosen.forEach(({ x, y, i }) => {
+      const color = GROUP_COLORS[i % GROUP_COLORS.length];
+      // Radial direction outward from center
+      const dx = x - cxC, dy = y - cyC;
+      const d  = Math.hypot(dx, dy) || 1;
+      const angle = Math.atan2(dy, dx);
+      _drawLeader(ctx, x, y, `G${chosen.indexOf(chosen.find(c=>c.i===i))+1}`,
+                  color, angle, scale);
+    });
   }
 
   function _drawLeader(ctx, cx, cy, label, rgb, angle, scale) {
@@ -567,42 +646,37 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // SHOW PAIR — main display function
+  // SHOW ITEM — handles both pairs and groups
   // ═══════════════════════════════════════════════════════════════════════
-  function showPair(idx) {
+  function showPair(idx) { showItem(idx); }   // alias legacy
+
+  function showItem(idx) {
     if (!catalog.length || idx < 0 || idx >= catalog.length) return;
     currentIndex = idx;
 
-    const pair = catalog[idx];
-    const id   = String(pair.id_par);
-    const cl   = classifications[id] || desktopCl[id] || null;
+    const item = catalog[idx];
+    const cl   = getCl(item);
 
-    // Header counter
     document.getElementById('ctrText').textContent = `${idx + 1} / ${catalog.length}`;
 
-    // Progress bar
     const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]).size;
     document.getElementById('progFill').style.width = `${(done / catalog.length * 100).toFixed(2)}%`;
 
-    // Reset spinner
     const overlay = document.getElementById('spinnerOverlay');
     overlay.style.display = 'flex';
     overlay.innerHTML = '<div class="spinner"></div>';
 
     const img = document.getElementById('galaxyImg');
     img.style.opacity = '0';
-
-    // Clear markers
-    const canvas = document.getElementById('markerCanvas');
-    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    document.getElementById('markerCanvas').getContext('2d')
+      .clearRect(0, 0, img.naturalWidth, img.naturalHeight);
 
     img.onload = () => {
       overlay.style.display = 'none';
       img.style.opacity = '1';
-      drawMarkers(pair);
-      _applyBorder(cl);
+      drawMarkers(item);
+      _applyBorder(cl, item);
     };
-
     img.onerror = () => {
       overlay.style.display = 'flex';
       overlay.innerHTML = `
@@ -612,68 +686,114 @@
           <button class="retry-btn" onclick="retryImage()">↻ Reintentar</button>
         </div>`;
     };
+    img.src = legacyUrl(item);
 
-    img.src = legacyUrl(pair);
-
-    // Pair info
-    _renderInfo(pair, cl, id);
-
-    // Button states
-    _updateButtons(cl);
-
+    _renderInfo(item, cl);
+    _updateButtons(cl, item);
     saveState();
   }
 
-  function _applyBorder(cl) {
+  function _applyBorder(cl, item) {
     const w = document.getElementById('imgWrapper');
     w.className = 'img-wrapper';
-    if (cl === 'FP')   w.classList.add('cl-fp');
-    if (cl === 'Pair') w.classList.add('cl-pair');
-    if (cl === 'PM')   w.classList.add('cl-pm');
+    if (cl === 'FP')    w.classList.add('cl-fp');
+    if (cl === 'Pair')  w.classList.add('cl-pair');
+    if (cl === 'PM')    w.classList.add('cl-pm');
+    if (cl === 'GROUP') w.classList.add('cl-group');
   }
 
-  function _renderInfo(pair, cl, id) {
-    const rp  = pair.rp   !== undefined ? `${pair.rp.toFixed(1)} kpc` : '—';
-    const sep = pair.sep_arcsec !== undefined ? `${pair.sep_arcsec.toFixed(1)}"` : '—';
-    const z1  = pair.z1  !== undefined ? pair.z1.toFixed(4) : '—';
-    const z2  = pair.z2  !== undefined ? pair.z2.toFixed(4) : '—';
+  function _renderInfo(item, cl) {
+    let headerHTML, infoHTML;
 
-    let badge = '';
-    if (cl) {
-      const color = cl === 'FP' ? '#ef9a9a' : cl === 'Pair' ? '#a5d6a7' : '#ffcc80';
-      const label = cl === 'FP' ? 'False Positive' : cl === 'Pair' ? 'Confirmed Pair' : 'Possible Merger';
-      const src   = desktopCl[id] && !classifications[id] ? ' <span style="color:#666">(desktop)</span>' : '';
-      badge = `<div class="cl-badge" style="color:${color}">✓ ${label}${src}</div>`;
+    if (isGroup(item)) {
+      const rp  = item.rp_kpc_max !== undefined ? `${item.rp_kpc_max.toFixed(1)} kpc` : '—';
+      const sep = item.max_sep_arcsec !== undefined ? `${item.max_sep_arcsec.toFixed(1)}"` : '—';
+      const z   = item.z_center !== undefined ? item.z_center.toFixed(4) : '—';
+      headerHTML = `
+        <div class="info-row">
+          <span>Grupo: <strong>#${item.group_id}</strong></span>
+          <span>N: <strong>${item.n_members}</strong></span>
+          <span>rp_max: <strong>${rp}</strong></span>
+        </div>`;
+      infoHTML = `
+        <div class="info-row" style="font-size:11px">
+          <span>RA <strong>${item.ra_center.toFixed(4)}</strong>
+                DEC <strong>${item.dec_center.toFixed(4)}</strong></span>
+        </div>
+        <div class="info-row" style="margin-top:3px;font-size:11px">
+          <span>z_center = <strong style="color:#a8d4ff">${z}</strong></span>
+          <span style="color:#555">double tap → Sky Viewer</span>
+        </div>
+        ${_badge(cl, true)}`;
+    } else {
+      const rp  = item.rp   !== undefined ? `${item.rp.toFixed(1)} kpc` : '—';
+      const sep = item.sep_arcsec !== undefined ? `${item.sep_arcsec.toFixed(1)}"` : '—';
+      const z1  = item.z1   !== undefined ? item.z1.toFixed(4) : '—';
+      const z2  = item.z2   !== undefined ? item.z2.toFixed(4) : '—';
+      headerHTML = `
+        <div class="info-row">
+          <span>ID: <strong>${item.id_par}</strong></span>
+          <span>rp: <strong>${rp}</strong></span>
+          <span>sep: <strong>${sep}</strong></span>
+        </div>`;
+      const k = String(item.id_par);
+      const fromDesktop = desktopCl[k] && !classifications[k]
+        ? ' <span style="color:#666">(desktop)</span>' : '';
+      infoHTML = `
+        <div class="info-row" style="font-size:11px">
+          <span style="color:#ff7a6a">G1 &nbsp;RA <strong>${item.ra1.toFixed(4)}</strong>
+                &nbsp;DEC <strong>${item.dec1.toFixed(4)}</strong></span>
+        </div>
+        <div class="info-row" style="font-size:11px;margin-top:1px">
+          <span style="color:#55aaff">G2 &nbsp;RA <strong>${item.ra2.toFixed(4)}</strong>
+                &nbsp;DEC <strong>${item.dec2.toFixed(4)}</strong></span>
+        </div>
+        <div class="info-row" style="margin-top:4px;font-size:11px">
+          <span style="color:#ff7a6a">z₁=<strong style="color:#ffb3a8">${z1}</strong></span>
+          <span style="color:#55aaff">z₂=<strong style="color:#a8d4ff">${z2}</strong></span>
+          <span style="color:#555">double tap → Sky Viewer</span>
+        </div>
+        ${item.fof_component_id !== undefined && item.component_size >= 3
+          ? `<div class="info-row" style="margin-top:4px;font-size:11px">
+               <span style="color:#4488cc">&#128101; Grupo <strong>#${item.fof_component_id}</strong> &mdash; N=<strong>${item.component_size}</strong></span>
+             </div>`
+          : ''}
+        ${_badge(cl, false)}${fromDesktop}`;
     }
 
-    document.getElementById('pairHeader').innerHTML = `
-      <div class="info-row">
-        <span>ID: <strong>${pair.id_par}</strong></span>
-        <span>rp: <strong>${rp}</strong></span>
-        <span>sep: <strong>${sep}</strong></span>
-      </div>
-    `;
-
-    document.getElementById('pairInfo').innerHTML = `
-      <div class="info-row" style="font-size:11px">
-        <span style="color:#ff7a6a">G1 &nbsp;RA <strong>${pair.ra1.toFixed(4)}</strong> &nbsp;DEC <strong>${pair.dec1.toFixed(4)}</strong></span>
-      </div>
-      <div class="info-row" style="font-size:11px;margin-top:1px">
-        <span style="color:#55aaff">G2 &nbsp;RA <strong>${pair.ra2.toFixed(4)}</strong> &nbsp;DEC <strong>${pair.dec2.toFixed(4)}</strong></span>
-      </div>
-      <div class="info-row" style="margin-top:4px;font-size:11px">
-        <span style="color:#ff7a6a">z₁ = <strong style="color:#ffb3a8">${z1}</strong></span>
-        <span style="color:#55aaff">z₂ = <strong style="color:#a8d4ff">${z2}</strong></span>
-        <span style="color:#555">double tap → Sky Viewer</span>
-      </div>
-      ${badge}
-    `;
+    document.getElementById('pairHeader').innerHTML = headerHTML;
+    document.getElementById('pairInfo').innerHTML   = infoHTML;
   }
 
-  function _updateButtons(cl) {
-    document.getElementById('btnFP').className   = 'btn-cl' + (cl === 'FP'   ? ' a-fp'   : '');
-    document.getElementById('btnPair').className = 'btn-cl' + (cl === 'Pair' ? ' a-pair' : '');
-    document.getElementById('btnPM').className   = 'btn-cl' + (cl === 'PM'   ? ' a-pm'   : '');
+  function _badge(cl, forGroup) {
+    if (!cl) return '';
+    const colors = { FP: '#ef9a9a', Pair: '#a5d6a7', GROUP: '#64b5f6', PM: '#ffcc80', PP: '#4dccaa' };
+    const labels = { FP: 'False Positive', Pair: 'Confirmed Pair', GROUP: 'Confirmed Group', PM: 'Possible Merger', PP: 'Possible Pair' };
+    return `<div class="cl-badge" style="color:${colors[cl]||'#aaa'}">✓ ${labels[cl]||cl}</div>`;
+  }
+
+  function _updateButtons(cl, item) {
+    document.getElementById('btnFP').className = 'btn-cl' + (cl === 'FP' ? ' a-fp' : '');
+
+    const midBtn = document.getElementById('btnPair');
+    const pmBtn  = document.getElementById('btnPM');
+
+    if (isGroup(item)) {
+      midBtn.innerHTML = '<span class="ic">⭐</span><span>Group</span><span class="lbl">Group</span>';
+      midBtn.onclick   = () => classify('GROUP');
+      midBtn.className = 'btn-cl' + (cl === 'GROUP' ? ' a-group' : '');
+      // Botón derecho = Possible Pair en grupos
+      pmBtn.innerHTML  = '<span class="ic">👥</span><span>Poss.Pair</span><span class="lbl">PP</span>';
+      pmBtn.onclick    = () => classify('PP');
+      pmBtn.className  = 'btn-cl' + (cl === 'PP' ? ' a-group' : '');
+    } else {
+      midBtn.innerHTML = '<span class="ic">✅</span><span>Pair</span><span class="lbl">Pair</span>';
+      midBtn.onclick   = () => classify('Pair');
+      midBtn.className = 'btn-cl' + (cl === 'Pair' ? ' a-pair' : '');
+      pmBtn.innerHTML  = '<span class="ic">🔀</span><span>Merger</span><span class="lbl">PM</span>';
+      pmBtn.onclick    = () => classify('PM');
+      pmBtn.className  = 'btn-cl' + (cl === 'PM' ? ' a-pm' : '');
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -683,24 +803,23 @@
     if (!catalog.length) return;
     if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
 
-    const pair = catalog[currentIndex];
-    const id   = String(pair.id_par);
+    const item = catalog[currentIndex];
+    const k    = itemKey(item);
 
-    if (classifications[id] === type) {
-      delete classifications[id];               // deselect (toggle off)
-      cancelCloudSave(pair.id_par);             // cancela envío pendiente si lo hay
+    if (classifications[k] === type) {
+      delete classifications[k];
+      _cancelCloud(item);
     } else {
-      classifications[id] = type;
-      scheduleCloudSave(pair.id_par, type);     // auto-guarda en nube tras 3 s
+      classifications[k] = type;
+      _scheduleCloud(item, type);
       autoAdvanceTimer = setTimeout(() => navigate(1), 650);
     }
 
-    const newCl = classifications[id] || desktopCl[id] || null;
-    _updateButtons(newCl);
-    _applyBorder(newCl);
-    _renderInfo(pair, newCl, id);
+    const newCl = getCl(item);
+    _updateButtons(newCl, item);
+    _applyBorder(newCl, item);
+    _renderInfo(item, newCl);
 
-    // Refresh progress
     const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]).size;
     document.getElementById('progFill').style.width = `${(done / catalog.length * 100).toFixed(2)}%`;
 
@@ -713,7 +832,7 @@
   function navigate(dir) {
     let next = currentIndex + dir;
     next = Math.max(0, Math.min(catalog.length - 1, next));
-    showPair(next);
+    showItem(next);
   }
 
   function skipToUnclassified() {
@@ -721,12 +840,9 @@
     const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
     for (let i = 1; i <= catalog.length; i++) {
       const idx = (currentIndex + i) % catalog.length;
-      if (!done.has(String(catalog[idx].id_par))) {
-        showPair(idx);
-        return;
-      }
+      if (!done.has(itemKey(catalog[idx]))) { showItem(idx); return; }
     }
-    alert('All pairs in the catalog have been classified! 🎉');
+    alert('All items in the catalog have been classified! 🎉');
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -741,9 +857,7 @@
     const overlay = document.getElementById('spinnerOverlay');
     overlay.style.display = 'flex';
     overlay.innerHTML = '<div class="spinner"></div>';
-    const img = document.getElementById('galaxyImg');
-    const pair = catalog[currentIndex];
-    img.src = legacyUrl(pair, true);   // cache-bust
+    document.getElementById('galaxyImg').src = legacyUrl(catalog[currentIndex], true);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -786,9 +900,7 @@
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        currentIndex,
-        classifications,
-        savedAt: new Date().toISOString()
+        currentIndex, classifications, savedAt: new Date().toISOString()
       }));
     } catch(e) {}
   }
@@ -808,15 +920,20 @@
   // ═══════════════════════════════════════════════════════════════════════
   function openModal(name) {
     if (name === 'stats') {
-      const count = cl => Object.values(classifications).filter(v => v === cl).length
-                        + Object.values(desktopCl).filter(v => v === cl).length;
-      const fp = count('FP'), pair = count('Pair'), pm = count('PM');
-      const total = fp + pair + pm;
+      const allCl = { ...desktopCl, ...classifications };  // mobile overrides desktop
+      const count = cl => Object.values(allCl).filter(v => v === cl).length;
+      const fp    = count('FP');
+      const pair  = count('Pair');
+      const group = count('GROUP');
+      const pm    = count('PM');
+      const pp    = count('PP');
+      const total = fp + pair + group + pm + pp;
       const pct   = catalog.length ? (total / catalog.length * 100).toFixed(1) : 0;
       const mob   = Object.keys(classifications).length;
-      document.getElementById('sFP').textContent   = fp;
-      document.getElementById('sPair').textContent = pair;
-      document.getElementById('sPM').textContent   = pm;
+      document.getElementById('sFP').textContent    = fp;
+      document.getElementById('sPair').textContent  = pair;
+      document.getElementById('sGroup').textContent = group;
+      document.getElementById('sPM').textContent    = pm;
       document.getElementById('sTotal').textContent =
         `Total: ${total} / ${catalog.length} (${pct}%) — this device: ${mob}`;
       document.getElementById('sDevice').textContent =
@@ -824,8 +941,7 @@
     }
     if (name === 'export') {
       const n = Object.keys(classifications).length;
-      document.getElementById('expStats').textContent =
-        `${n} classifications from this device.`;
+      document.getElementById('expStats').textContent = `${n} classifications from this device.`;
     }
     document.getElementById(`${name}Modal`).classList.remove('hidden');
   }
@@ -837,26 +953,27 @@
   // ═══════════════════════════════════════════════════════════════════════
   // CLOUD SAVE (Supabase — auto-guardado con debounce de 3 s)
   // ═══════════════════════════════════════════════════════════════════════
-  function _saveToCloud(idPar, classification) {
+  function _supabaseIdPar(item) {
+    // groups use group_id + OFFSET to avoid collision with pair ids
+    return isGroup(item) ? item.group_id + GROUP_OFFSET : item.id_par;
+  }
+
+  function _saveToCloud(item, classification) {
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
-    if (!url || !key) return;          // no configurado (modo dev sin export)
-
+    if (!url || !key) return;
     fetch(`${url}/rest/v1/clasificaciones`, {
-      method:  'POST',
+      method: 'POST',
       headers: {
-        'apikey':        key,
-        'Authorization': `Bearer ${key}`,
-        'Content-Type':  'application/json',
-        'Prefer':        'resolution=merge-duplicates,return=minimal'
+        'apikey': key, 'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
       },
       body: JSON.stringify([{
-        device_id:      deviceId,
-        id_par:         idPar,
-        classification: classification,
-        exported_at:    new Date().toISOString()
+        device_id: deviceId, id_par: _supabaseIdPar(item),
+        classification, exported_at: new Date().toISOString()
       }])
-    }).catch(() => {});               // silencioso — localStorage es el respaldo
+    }).catch(() => {});
   }
 
   async function syncToCloud() {
@@ -882,25 +999,29 @@
     statusEl.style.color = '#aaa';
     statusEl.textContent = `Sending ${entries.length} classifications…`;
 
-    const rows = entries.map(([id, cl]) => ({
-      device_id:      deviceId,
-      id_par:         parseInt(id, 10),
-      classification: cl,
-      exported_at:    new Date().toISOString()
-    }));
+    // Build catalog lookup for id_par resolution
+    const lookup = {};
+    catalog.forEach(item => { lookup[itemKey(item)] = item; });
+
+    const rows = entries.map(([k, cl]) => {
+      const item  = lookup[k];
+      const idPar = item ? _supabaseIdPar(item)
+                         : (k.startsWith('g_') ? parseInt(k.slice(2), 10) + GROUP_OFFSET
+                                                : parseInt(k, 10));
+      return { device_id: deviceId, id_par: idPar, classification: cl,
+               exported_at: new Date().toISOString() };
+    });
 
     try {
       const resp = await fetch(`${url}/rest/v1/clasificaciones`, {
-        method:  'POST',
+        method: 'POST',
         headers: {
-          'apikey':        key,
-          'Authorization': `Bearer ${key}`,
-          'Content-Type':  'application/json',
-          'Prefer':        'resolution=merge-duplicates,return=minimal'
+          'apikey': key, 'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
         },
         body: JSON.stringify(rows)
       });
-
       if (resp.ok || resp.status === 201 || resp.status === 204) {
         statusEl.style.color = '#a5d6a7';
         statusEl.textContent = `✓ ${entries.length} classifications synced.`;
@@ -912,39 +1033,44 @@
     } catch (err) {
       statusEl.style.color = '#ef9a9a';
       statusEl.textContent = `✗ Sin conexión: ${err.message}`;
-    } finally {
-      btn.disabled = false;
-    }
+    } finally { btn.disabled = false; }
   }
 
-  function scheduleCloudSave(idPar, classification) {
-    const key = String(idPar);
-    if (_cloudTimers[key]) clearTimeout(_cloudTimers[key]);
-    _cloudTimers[key] = setTimeout(() => {
-      delete _cloudTimers[key];
-      _saveToCloud(idPar, classification);
-    }, 3000);                         // 3 s de margen para cambiar de opinión
+  function _scheduleCloud(item, classification) {
+    const k = itemKey(item);
+    if (_cloudTimers[k]) clearTimeout(_cloudTimers[k]);
+    _cloudTimers[k] = setTimeout(() => {
+      delete _cloudTimers[k];
+      _saveToCloud(item, classification);
+    }, 3000);
   }
 
-  function cancelCloudSave(idPar) {
-    const key = String(idPar);
-    if (_cloudTimers[key]) { clearTimeout(_cloudTimers[key]); delete _cloudTimers[key]; }
+  function _cancelCloud(item) {
+    const k = itemKey(item);
+    if (_cloudTimers[k]) { clearTimeout(_cloudTimers[k]); delete _cloudTimers[k]; }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   // EXPORT
   // ═══════════════════════════════════════════════════════════════════════
   function doExport() {
-    const entries = Object.entries(classifications).map(([id, cl]) => ({
-      id_par: parseInt(id, 10),
-      classification: cl
-    }));
+    const pairEntries  = [];
+    const groupEntries = [];
+    Object.entries(classifications).forEach(([key, cl]) => {
+      if (key.startsWith('g_')) {
+        groupEntries.push({ group_id: parseInt(key.slice(2), 10), classification: cl });
+      } else {
+        pairEntries.push({ id_par: parseInt(key, 10), classification: cl });
+      }
+    });
     const payload = {
-      exported_at:       new Date().toISOString(),
-      source:            'mobile_pwa',
-      device_id:         deviceId,
-      total_classified:  entries.length,
-      classifications:   entries
+      exported_at:            new Date().toISOString(),
+      source:                 'mobile_pwa',
+      device_id:              deviceId,
+      total_classified_pairs: pairEntries.length,
+      total_classified_groups: groupEntries.length,
+      pair_classifications:   pairEntries,
+      group_classifications:  groupEntries,
     };
 
     // ── Descarga local (respaldo / importación al escritorio) ─────────────
@@ -963,8 +1089,10 @@
   // ═══════════════════════════════════════════════════════════════════════
   // PARTITION — auto-registro y asignación de bloque desde Supabase
   // ═══════════════════════════════════════════════════════════════════════
-  const CALIB_SIZE = 150;
-  const BLOCK_SIZE = 3000;
+  const CALIB_PAIRS  = 120;   // pares de calibración (iguales para todos)
+  const CALIB_GROUPS = 80;    // grupos de calibración (iguales para todos)
+  const CALIB_SIZE   = CALIB_PAIRS;   // alias para compatibilidad con getOrCreatePartition
+  const BLOCK_SIZE   = 3000;
 
   async function getOrCreatePartition(devId) {
     const url  = window._SUPABASE_URL;
@@ -1036,31 +1164,43 @@
         data = await resp.json();
       }
 
-      const basePairs = data.pairs || [];
+      const basePairs  = data.pairs  || [];
+      const baseGroups = data.groups || [];
       desktopCl = data.desktop_classified || {};
       deviceId  = getOrCreateDeviceId();
 
       // ── Obtener/crear partición desde Supabase ───────────────────────
       const partition = await getOrCreatePartition(deviceId);
 
-      let calibPairs, workPairs;
-      if (partition) {
-        // Calibración: primeros CALIB_SIZE pares, orden aleatorio por dispositivo
-        calibPairs = seededShuffle(basePairs.slice(0, CALIB_SIZE), partition.calib_seed);
-        // Trabajo: bloque exclusivo de este dispositivo
-        workPairs  = basePairs.slice(partition.work_start, partition.work_end);
-      } else {
-        // Sin Supabase: shuffle por device_id (comportamiento anterior)
-        const devSeed  = strToSeed(deviceId);
-        calibPairs = seededShuffle(basePairs.slice(0, CALIB_SIZE), devSeed);
-        workPairs  = seededShuffle(basePairs.slice(CALIB_SIZE), devSeed ^ 0xA5F3);
-      }
+      const seed = partition ? partition.calib_seed : strToSeed(deviceId);
 
-      catalog = [...calibPairs, ...workPairs];
+      // ── Pares: calibración (primeros CALIB_PAIRS, orden distinto por usuario)
+      const calibPairs = seededShuffle(basePairs.slice(0, CALIB_PAIRS), seed);
+      const workPairs  = partition
+        ? basePairs.slice(partition.work_start, partition.work_end)
+        : seededShuffle(basePairs.slice(CALIB_PAIRS), seed ^ 0xA5F3);
+
+      // ── Grupos: calibración (primeros CALIB_GROUPS, mismos para todos, orden distinto)
+      const calibGroups = seededShuffle(baseGroups.slice(0, CALIB_GROUPS), seed ^ 0xCAFE);
+      // Trabajo: resto de grupos, shuffleados por dispositivo
+      const workGroups  = seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
+
+      // ── Intercalar: calibración mezclada primero, luego trabajo mezclado
+      function interleave(a, b) {
+        const out = [];
+        const n = Math.max(a.length, b.length);
+        for (let i = 0; i < n; i++) {
+          if (i < a.length) out.push(a[i]);
+          if (i < b.length) out.push(b[i]);
+        }
+        return out;
+      }
+      catalog = [...interleave(calibPairs, calibGroups),
+                 ...interleave(workPairs,  workGroups)];
 
       if (!catalog.length) { showNoCatalog(); return; }
       if (currentIndex >= catalog.length) currentIndex = 0;
-      showPair(currentIndex);
+      showItem(currentIndex);
 
     } catch(err) {
       console.error('Catalog load error:', err);

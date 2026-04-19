@@ -16,9 +16,10 @@ Salida:
 Requiere: .env en la raíz del proyecto con SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
 
 Constantes del catálogo:
-    CALIB_SIZE  = 150    primeros N índices del catálogo, pool de calibración compartido
-    BLOCK_SIZE  = 3000   pares de trabajo asignados por dispositivo
-    catalog_len = leído dinámicamente desde la ruta PAIRS_CATALOG en .env
+    CALIB_PAIRS  = 120   primeros N pares del catálogo, pool de calibración compartido
+    CALIB_GROUPS = 80    primeros N grupos del catálogo, pool de calibración compartido
+    BLOCK_SIZE   = 3000  pares de trabajo asignados por dispositivo
+    catalog_len  = leído dinámicamente desde la ruta PAIRS_CATALOG en .env
 """
 
 import argparse
@@ -49,8 +50,10 @@ SERVICE_ROLE_KEY = _env.get('SUPABASE_SERVICE_ROLE_KEY', '')
 CATALOG_PATH     = _env.get('PAIRS_CATALOG', '')
 
 # ── Constantes ────────────────────────────────────────────────────────────────
-CALIB_SIZE = 150
-BLOCK_SIZE = 3_000
+CALIB_PAIRS  = 120   # pares de calibración compartidos por todos los usuarios
+CALIB_GROUPS = 80    # grupos de calibración compartidos por todos los usuarios
+CALIB_SIZE   = CALIB_PAIRS   # alias: work_start del primer dispositivo
+BLOCK_SIZE   = 3_000
 
 # ── Helpers REST ──────────────────────────────────────────────────────────────
 def _headers():
@@ -132,8 +135,9 @@ def print_summary(result: dict) -> None:
     status = 'YA EXISTÍA' if result['status'] == 'existing' else 'REGISTRADO'
     n_work = p['work_end'] - p['work_start']
     print(f'\n── Dispositivo: {p["device_id"]}  [{status}] ──────────────────')
-    print(f'  Pool calibración : índices 0–{CALIB_SIZE - 1} '
-          f'({CALIB_SIZE} pares, orden aleatorio con seed={p["calib_seed"]})')
+    print(f'  Pool calibración : {CALIB_PAIRS} pares (índices 0–{CALIB_PAIRS-1}) '
+          f'+ {CALIB_GROUPS} grupos (índices 0–{CALIB_GROUPS-1}) '
+          f'= 200 ítems, orden aleatorio con seed={p["calib_seed"]}')
     print(f'  Bloque de trabajo: índices {p["work_start"]}–{p["work_end"] - 1} '
           f'({n_work:,} pares)')
     if result['status'] == 'existing':

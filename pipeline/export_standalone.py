@@ -25,13 +25,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ── Configuración ──────────────────────────────────────────────────────────────
-CATALOG_PATH  = _env.get('PAIRS_CATALOG', '')
-PROGRESS_FILE = 'outputs/catalogs/progress.json'
-TEMPLATE_HTML = 'mobile/index.html'
-OUTPUT_HTML   = 'mobile/GalPairs.html'
-RP_MAX_KPC    = 12.0
-
 # ── Leer .env ─────────────────────────────────────────────────────────────────
 def _load_env(path='.env'):
     env = {}
@@ -49,6 +42,15 @@ def _load_env(path='.env'):
 _env              = _load_env()
 SUPABASE_URL      = _env.get('SUPABASE_URL', '')
 SUPABASE_ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
+
+# ── Configuración ──────────────────────────────────────────────────────────────
+CATALOG_PATH        = _env.get('PAIRS_CATALOG', '')
+GROUPS_CATALOG_PATH = _env.get('GROUPS_CATALOG', '')
+PROGRESS_FILE = 'outputs/catalogs/progress.json'
+TEMPLATE_HTML = 'mobile/index.html'
+OUTPUT_HTML   = 'mobile/GalPairs.html'
+RP_MAX_KPC    = 12.0
+MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
 
 # ── Catálogo ──────────────────────────────────────────────────────────────────
 def _compute_sep(df):
@@ -108,18 +110,70 @@ def build_catalog() -> dict:
             entry['z1'] = round(float(row['z1']), 4)
         if has_z2:
             entry['z2'] = round(float(row['z2']), 4)
+        if 'fof_component_id' in row and pd.notna(row['fof_component_id']):
+            entry['fof_component_id'] = int(row['fof_component_id'])
+        if 'component_size' in row and pd.notna(row['component_size']):
+            entry['component_size'] = int(row['component_size'])
         pairs.append(entry)
 
     desktop_cl = _load_desktop_classified(PROGRESS_FILE)
     print(f'  {len(desktop_cl)} pares ya clasificados en escritorio')
 
+    groups = _build_groups_catalog()
+
     return {
         'exported_at':        datetime.now().isoformat(),
         'rp_max_kpc':         RP_MAX_KPC,
         'total_pairs':        len(pairs),
+        'total_groups':       len(groups),
         'desktop_classified': desktop_cl,
         'pairs':              pairs,
+        'groups':             groups,
     }
+
+
+def _build_groups_catalog() -> list:
+    """Construye lista de grupos (una entrada por componente FoF) para embeber en el HTML."""
+    if not GROUPS_CATALOG_PATH or not Path(GROUPS_CATALOG_PATH).exists():
+        print('  Aviso: GROUPS_CATALOG no encontrado — grupos no incluidos en el HTML')
+        return []
+
+    print('Construyendo catálogo de grupos para móvil…')
+    df = pd.read_parquet(GROUPS_CATALOG_PATH)
+    groups = []
+    for gid, edges in df.groupby('fof_component_id'):
+        half1 = edges[['id1', 'ra1', 'dec1', 'z1']].rename(
+            columns={'id1': 'id', 'ra1': 'ra', 'dec1': 'dec', 'z1': 'z'})
+        half2 = edges[['id2', 'ra2', 'dec2', 'z2']].rename(
+            columns={'id2': 'id', 'ra2': 'ra', 'dec2': 'dec', 'z2': 'z'})
+        members = pd.concat([half1, half2]).drop_duplicates('id')
+
+        ra_c   = float(members['ra'].mean())
+        dec_c  = float(members['dec'].mean())
+        z_c    = float(members['z'].mean())
+
+        # Ordenar miembros por distancia al centroide → los más cercanos primero
+        members = members.copy()
+        members['_dist'] = np.hypot(members['ra'] - ra_c, members['dec'] - dec_c)
+        members = members.sort_values('_dist')
+
+        # Tomar solo los MAX_GROUP_MEMBERS_MOBILE más cercanos para no saturar el HTML
+        top = members.head(MAX_GROUP_MEMBERS_MOBILE)
+
+        groups.append({
+            'group_id':       int(gid),
+            'n_members':      len(members),
+            'ra_center':      round(ra_c,  6),
+            'dec_center':     round(dec_c, 6),
+            'z_center':       round(z_c,   4),
+            'max_sep_arcsec': round(float(edges['sep_arcsec'].max()), 2),
+            'rp_kpc_max':     round(float(edges['rp_kpc'].max()), 2),
+            'member_ra':      [round(float(v), 5) for v in top['ra']],
+            'member_dec':     [round(float(v), 5) for v in top['dec']],
+        })
+
+    print(f'  {len(groups):,} grupos únicos listos')
+    return groups
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -157,6 +211,7 @@ def main():
 
     size_mb = Path(OUTPUT_HTML).stat().st_size / 1e6
     print(f'\n✓  Generado: {OUTPUT_HTML}')
+    print(f'   Pares: {catalog["total_pairs"]:,}  |  Grupos: {catalog["total_groups"]:,}')
     print(f'   Tamaño: {size_mb:.1f} MB  |  {len(catalog["pairs"]):,} pares')
     print()
     print('Siguiente paso — publicar en GitHub Pages:')

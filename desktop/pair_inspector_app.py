@@ -99,6 +99,18 @@ FP_IMG_DIR     = 'outputs/fp_images'
 PM_IMG_DIR     = 'outputs/pm_images'
 PAIR_IMG_DIR   = 'outputs/pair_images'
 
+# ── Configuración de grupos ───────────────────────────────────────────────────
+GROUPS_CATALOG_PATH   = _env.get('GROUPS_CATALOG', 'data/DESI_v3_groups.parquet')
+PROGRESS_FILE_GROUPS  = 'outputs/catalogs/progress_groups.json'
+OUTPUT_CSV_FP_GROUPS  = 'outputs/catalogs/groups_false_positives.csv'
+OUTPUT_CSV_PM_GROUPS  = 'outputs/catalogs/groups_possible_mergers.csv'
+OUTPUT_CSV_PP_GROUPS  = 'outputs/catalogs/groups_possible_pairs.csv'
+OUTPUT_CSV_GROUPS     = 'outputs/catalogs/confirmed_groups.csv'
+GROUP_IMG_DIR         = 'outputs/group_images'
+GROUP_FP_IMG_DIR      = 'outputs/group_fp_images'
+GROUP_PM_IMG_DIR      = 'outputs/group_pm_images'
+GROUP_PP_IMG_DIR      = 'outputs/group_pp_images'
+
 RP_MAX_KPC = 12.0
 
 GRID_COLS = 4
@@ -113,10 +125,8 @@ TIMEOUT        = 15     # segundos por intento (aumentado)
 
 CELL_SIZE      = 420    # tamaño de celda en la UI (px) — más grande para monitor grande
 
-CIRCLE_RADIUS  = 4              # radio del anillo exterior (muy transparente)
-CIRCLE_ALPHA   = 40             # anillo casi invisible (solo referencia)
-CROSS_SIZE     = 4              # semilongitud del brazo de la cruz/X
-CROSS_ALPHA    = 130            # marcadores semitransparentes
+CROSS_SIZE     = 4              # semilongitud del brazo de la cruz/X (pares)
+CROSS_ALPHA    = 130            # transparencia de marcadores (pares)
 COLOR_G1       = (255, 90,  90)
 COLOR_G2       = (80,  190, 255)
 TEXT_COLOR     = (255, 255, 50)
@@ -132,7 +142,54 @@ BG_DEFAULT   = '#1e1e1e'
 BG_FP        = '#5a1010'   # rojo oscuro — Falso positivo
 BG_PM        = '#4a3000'   # ámbar oscuro — Merger
 BG_PAIR      = '#0f4020'   # verde oscuro — Par confirmado
+BG_GROUP     = '#0a2040'   # azul marino oscuro — Grupo confirmado
+BG_PP        = '#1a3030'   # verde-azul oscuro  — Posible par dentro de grupo
 BG_SELECTED  = '#1a1a50'   # azul oscuro — seleccionada
+
+# Paleta de colores para los miembros del grupo (hasta 10 miembros)
+GROUP_MEMBER_COLORS = [
+    (255,  90,  90),   # rojo
+    ( 80, 190, 255),   # azul
+    (100, 255, 100),   # verde
+    (255, 200,  50),   # amarillo
+    (255, 120, 220),   # rosa
+    (100, 255, 220),   # cian
+    (255, 160,  80),   # naranja
+    (200, 150, 255),   # violeta
+    (200, 255, 180),   # verde claro
+    (255, 255, 255),   # blanco
+]
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CARGA DE GRUPOS — construye una fila por grupo a partir de las aristas FoF
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _load_groups_from_edges(path: str) -> pd.DataFrame:
+    """Lee DESI_v3_groups.parquet (aristas FoF) y devuelve un DataFrame con
+    una fila por componente, usando fof_component_id como clave."""
+    df = pd.read_parquet(path)
+    records = []
+    for gid, edges in df.groupby('fof_component_id'):
+        half1 = edges[['id1', 'ra1', 'dec1', 'z1']].rename(
+            columns={'id1': 'id', 'ra1': 'ra', 'dec1': 'dec', 'z1': 'z'})
+        half2 = edges[['id2', 'ra2', 'dec2', 'z2']].rename(
+            columns={'id2': 'id', 'ra2': 'ra', 'dec2': 'dec', 'z2': 'z'})
+        members = pd.concat([half1, half2]).drop_duplicates('id')
+        records.append({
+            'group_id':       int(gid),
+            'n_members':      len(members),
+            'ra_center':      float(members['ra'].mean()),
+            'dec_center':     float(members['dec'].mean()),
+            'z_center':       float(members['z'].mean()),
+            'max_sep_arcsec': float(edges['sep_arcsec'].max()),
+            'rp_kpc_max':     float(edges['rp_kpc'].max()),
+            'member_ids':     members['id'].tolist(),
+            'member_ra':      members['ra'].tolist(),
+            'member_dec':     members['dec'].tolist(),
+            'member_z':       members['z'].tolist(),
+        })
+    return pd.DataFrame(records).reset_index(drop=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FUNCIONES DE IMAGEN — reutilizadas del notebook
@@ -326,6 +383,165 @@ def make_error_tile(error_msg: str = '') -> Image.Image:
     # Indicación de reintento
     draw.text((sz//2 - 72, sz - 36), '↓  usa el botón Reintentar', fill=(200, 120, 50))
     return img
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FUNCIONES DE IMAGEN PARA GRUPOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_group_one(ra_center: float, dec_center: float,
+                     max_sep_arcsec: float) -> 'Image.Image | None':
+    """Descarga un recorte centrado en el centroide del grupo.
+    Usa un padding mayor que para pares para mostrar el contexto."""
+    # Si max_sep es muy pequeño o 0, usar un mínimo de 10 arcsec
+    sep_eff = max(max_sep_arcsec, 10.0)
+    ps  = float(np.clip(sep_eff * PADDING_FACTOR / IMG_SIZE_PX, 0.3, 5.0))
+    url = _legacy_url(ra_center, dec_center, ps)
+    key = (round(ra_center, 5), round(dec_center, 5))
+    last_err = ''
+    for intento in range(3):
+        try:
+            resp = requests.get(url, timeout=TIMEOUT)
+            resp.raise_for_status()
+            img  = Image.open(BytesIO(resp.content)).convert('RGB')
+            _fetch_errors.pop(key, None)
+            return img
+        except requests.exceptions.Timeout:
+            last_err = f'Timeout ({TIMEOUT}s) — intento {intento+1}/3'
+        except requests.exceptions.ConnectionError:
+            last_err = 'Sin conexión a Legacy Survey'
+        except Exception as exc:
+            last_err = str(exc)[:60]
+        if intento < 2:
+            time.sleep(0.5 * (intento + 1))
+    _fetch_errors[key] = last_err
+    return None
+
+
+def fetch_groups_parallel(rows: list) -> list:
+    """Descarga imágenes de grupos en paralelo."""
+    results = [None] * len(rows)
+    with ThreadPoolExecutor(max_workers=N_WORKERS) as pool:
+        futures = {
+            pool.submit(_fetch_group_one,
+                        r['ra_center'], r['dec_center'],
+                        r.get('max_sep_arcsec', 10.0)): i
+            for i, r in enumerate(rows)
+        }
+        for fut in as_completed(futures):
+            results[futures[fut]] = fut.result()
+    return results
+
+
+MAX_ANNOTATE_MEMBERS = 8   # máximo de miembros anotados en la imagen
+MIN_ANNOTATE_MEMBERS = 5   # mínimo a mostrar si hay suficientes en el frame
+
+
+def annotate_image_group(img: Image.Image, row: dict) -> Image.Image:
+    """Dibuja líneas guía radiales + etiqueta G1, G2… para cada miembro visible.
+
+    Para grupos grandes (N > MAX_ANNOTATE_MEMBERS) prioriza los miembros más
+    cercanos al centroide de la imagen que quepan dentro del frame; si ninguno
+    cae dentro, toma los MIN_ANNOTATE_MEMBERS más cercanos al centro del frame.
+    """
+    base = img.copy().resize((IMG_SIZE_PX, IMG_SIZE_PX)).convert('RGBA')
+
+    ra_center  = float(row['ra_center'])
+    dec_center = float(row['dec_center'])
+    sep_eff    = max(float(row.get('max_sep_arcsec', 10.0)), 10.0)
+    ps         = float(np.clip(sep_eff * PADDING_FACTOR / IMG_SIZE_PX, 0.3, 5.0))
+
+    member_ra  = row.get('member_ra',  [])
+    member_dec = row.get('member_dec', [])
+
+    # Posiciones en píxeles de todos los miembros
+    all_positions = [
+        _radec_to_pixel(ra, dec, ra_center, dec_center, ps)
+        for ra, dec in zip(member_ra, member_dec)
+    ]
+
+    cx_center = IMG_SIZE_PX / 2
+    cy_center = IMG_SIZE_PX / 2
+    MARGIN    = 8   # píxeles de margen para considerar "dentro del frame"
+
+    # Seleccionar subconjunto de miembros a anotar
+    if len(all_positions) <= MAX_ANNOTATE_MEMBERS:
+        positions = all_positions
+    else:
+        # Calcular distancia al centro del frame para cada miembro
+        dists = [float(np.hypot(cx - cx_center, cy - cy_center))
+                 for cx, cy in all_positions]
+        # Separar los que están dentro del frame
+        inside = [(d, i) for i, (d, (cx, cy)) in enumerate(zip(dists, all_positions))
+                  if -MARGIN <= cx <= IMG_SIZE_PX + MARGIN
+                  and -MARGIN <= cy <= IMG_SIZE_PX + MARGIN]
+        inside.sort()   # ordenar por distancia al centro
+        if len(inside) >= MIN_ANNOTATE_MEMBERS:
+            chosen = [i for _, i in inside[:MAX_ANNOTATE_MEMBERS]]
+        else:
+            # No hay suficientes en el frame: tomar los más cercanos al centro
+            chosen = [i for _, i in sorted(zip(dists, range(len(dists))))[:MAX_ANNOTATE_MEMBERS]]
+        positions = [all_positions[i] for i in chosen]
+
+    LLEN = 18   # longitud de la línea guía en píxeles
+
+    overlay = Image.new('RGBA', base.size, (0, 0, 0, 0))
+    odraw   = ImageDraw.Draw(overlay)
+
+    # Primera pasada: líneas guía radiales sobre el overlay
+    endpoints = []
+    for idx, (cx, cy) in enumerate(positions):
+        color = GROUP_MEMBER_COLORS[idx % len(GROUP_MEMBER_COLORS)]
+
+        # Dirección radial: desde el centroide de la imagen hacia afuera
+        dx = cx - cx_center
+        dy = cy - cy_center
+        dist = float(np.hypot(dx, dy))
+        if dist > 1:
+            ax, ay = dx / dist, dy / dist
+        else:
+            ax, ay = 0.0, -1.0   # miembro en el centro → línea hacia arriba
+
+        lx = cx + ax * LLEN
+        ly = cy + ay * LLEN
+        endpoints.append((lx, ly, ax, ay, color))
+
+        odraw.line([cx, cy, lx, ly], fill=(*color, 160), width=1)
+
+    base = Image.alpha_composite(base, overlay)
+    draw = ImageDraw.Draw(base)
+
+    # Segunda pasada: etiquetas al final de cada línea guía
+    CH = 6
+    for idx, (lx, ly, ax, ay, color) in enumerate(endpoints):
+        label = f'G{idx + 1}'
+        tx = lx + (2 if ax >= 0 else -(len(label) * CH + 2))
+        ty = ly + (2 if ay >= 0 else -11)
+        draw.text((tx, ty), label, fill=color)
+
+    # ── Metadatos en la imagen ────────────────────────────────────────────────
+    margin = 4
+
+    if 'group_id' in row:
+        lbl = f'grupo #{int(row["group_id"])}  N={int(row.get("n_members", "?"))}'
+        draw.rectangle([margin-2, margin-2,
+                        margin + len(lbl)*CH + 2, margin + 10],
+                       fill=(0, 0, 0, 200))
+        draw.text((margin, margin), lbl, fill=TEXT_COLOR)
+
+    z_lbl = f'z={float(row.get("z_center", 0)):.3f}'
+    draw.rectangle([margin-2, IMG_SIZE_PX - 30,
+                    margin + len(z_lbl)*CH + 2, IMG_SIZE_PX - 18],
+                   fill=(0, 0, 0, 200))
+    draw.text((margin, IMG_SIZE_PX - 30), z_lbl, fill=TEXT_COLOR)
+
+    rp_lbl = f'rp_max={float(row.get("rp_kpc_max", 0)):.1f} kpc'
+    draw.rectangle([margin-2, IMG_SIZE_PX - 16,
+                    margin + len(rp_lbl)*CH + 2, IMG_SIZE_PX - margin],
+                   fill=(0, 0, 0, 200))
+    draw.text((margin, IMG_SIZE_PX - 16), rp_lbl, fill=TEXT_COLOR)
+
+    return base.convert('RGB')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -562,6 +778,242 @@ class PairValidator:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# GROUPVALIDATOR — lógica de persistencia para grupos (≥3 miembros)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class GroupValidator:
+    """Gestiona el índice de revisión y las clasificaciones de grupos.
+
+    Categorías:
+        confirmed_groups  → grupos reales interactuantes
+        false_positives   → grupos que son falsos positivos (proyección, etc.)
+        possible_mergers  → grupos ambiguos / posibles mergers
+
+    Las clasificaciones se guardan en progress_groups.json (local) y
+    opcionalmente en Supabase usando group_id + 10_000_000 como id_par
+    para evitar colisión con los pares.
+    """
+
+    SUPABASE_OFFSET = 10_000_000   # desplazamiento para separar ids de grupos en Supabase
+
+    def __init__(self, catalog_path, progress_file,
+                 group_img_dir, group_fp_img_dir, group_pm_img_dir,
+                 group_pp_img_dir=None):
+        self.progress_file    = progress_file
+        self.group_img_dir    = Path(group_img_dir)
+        self.group_fp_img_dir = Path(group_fp_img_dir)
+        self.group_pm_img_dir = Path(group_pm_img_dir)
+        self.group_pp_img_dir = Path(group_pp_img_dir or GROUP_PP_IMG_DIR)
+
+        for d in (self.group_img_dir, self.group_fp_img_dir,
+                  self.group_pm_img_dir, self.group_pp_img_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        if not Path(catalog_path).exists():
+            raise FileNotFoundError(
+                f'No se encontró el catálogo de grupos:\n{catalog_path}')
+
+        # print('Construyendo catálogo de grupos desde aristas FoF…')
+        df = _load_groups_from_edges(catalog_path)
+        # print(f'  {len(df):,} grupos únicos cargados')
+
+        self.df      = df.reset_index(drop=True)
+        self.df_full = self.df   # sin partición por ahora
+        self.rp_col  = 'rp_kpc_max' if 'rp_kpc_max' in df.columns else None
+
+        # Índice actual y listas de clasificación
+        self._load_progress()
+
+    # ── Persistencia ──────────────────────────────────────────────────────────
+
+    def _load_progress(self):
+        if os.path.exists(self.progress_file):
+            with open(self.progress_file) as f:
+                state = json.load(f)
+            self.current_index    = state.get('current_index', 0)
+            self.confirmed_groups = state.get('confirmed_groups', [])
+            self.false_positives  = state.get('false_positives', [])
+            self.possible_mergers = state.get('possible_mergers', [])
+            self.possible_pairs   = state.get('possible_pairs',   [])
+            self.pending_retry    = state.get('pending_retry', [])
+        else:
+            self.current_index    = 0
+            self.confirmed_groups = []
+            self.false_positives  = []
+            self.possible_mergers = []
+            self.possible_pairs   = []
+            self.pending_retry    = []
+
+    def save_progress(self):
+        Path(self.progress_file).parent.mkdir(parents=True, exist_ok=True)
+        with open(self.progress_file, 'w') as f:
+            json.dump({
+                'current_index'   : self.current_index,
+                'confirmed_groups': self.confirmed_groups,
+                'false_positives' : self.false_positives,
+                'possible_mergers': self.possible_mergers,
+                'possible_pairs'  : self.possible_pairs,
+                'pending_retry'   : self.pending_retry,
+                'last_saved'      : datetime.now().isoformat(),
+            }, f, indent=2)
+
+    def export_csv(self):
+        results = []
+        for data, path, label in [
+            (self.confirmed_groups, OUTPUT_CSV_GROUPS,    'Grupos confirmados'),
+            (self.false_positives,  OUTPUT_CSV_FP_GROUPS, 'Falsos positivos (grupos)'),
+            (self.possible_mergers, OUTPUT_CSV_PM_GROUPS, 'Posibles mergers (grupos)'),
+            (self.possible_pairs,   OUTPUT_CSV_PP_GROUPS, 'Posibles pares (grupos)'),
+        ]:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            if data:
+                pd.DataFrame(data).to_csv(path, index=False)
+                results.append(f'{label}: {len(data)} → {path}')
+            else:
+                results.append(f'{label}: (vacío)')
+        return '\n'.join(results)
+
+    # ── Navegación ────────────────────────────────────────────────────────────
+
+    def get_page(self, page_size) -> pd.DataFrame:
+        return self.df.iloc[self.current_index:
+                            min(self.current_index + page_size, len(self.df))]
+
+    def advance(self, n):
+        self.current_index = min(self.current_index + n, len(self.df))
+
+    def go_back(self, n):
+        self.current_index = max(self.current_index - n, 0)
+
+    # ── Helpers de identificación ─────────────────────────────────────────────
+
+    def _group_id(self, row: dict) -> int:
+        return int(row['group_id'])
+
+    def _row_record(self, row: dict, img_path: Path) -> dict:
+        return {
+            'group_id':       self._group_id(row),
+            'n_members':      int(row.get('n_members', 0)),
+            'ra_center':      float(row.get('ra_center', 0)),
+            'dec_center':     float(row.get('dec_center', 0)),
+            'z_center':       float(row.get('z_center', 0)),
+            'max_sep_arcsec': float(row.get('max_sep_arcsec', 0)),
+            'rp_kpc_max':     float(row.get('rp_kpc_max', 0)),
+            'img_path':       str(img_path),
+        }
+
+    # ── Clasificación: Grupo confirmado ───────────────────────────────────────
+
+    def mark_confirmed_group(self, row: dict, img: Image.Image):
+        gid = self._group_id(row)
+        if not any(e['group_id'] == gid for e in self.confirmed_groups):
+            path = self.group_img_dir / f'grupo_{gid}.jpg'
+            self.confirmed_groups.append(self._row_record(row, path))
+            img.save(path, format='JPEG', quality=92)
+        self._remove_pending(row)
+
+    def unmark_confirmed_group(self, row: dict):
+        gid  = self._group_id(row)
+        path = self.group_img_dir / f'grupo_{gid}.jpg'
+        self.confirmed_groups = [e for e in self.confirmed_groups
+                                  if e['group_id'] != gid]
+        if path.exists():
+            path.unlink()
+
+    def is_confirmed_group(self, row: dict) -> bool:
+        gid = self._group_id(row)
+        return any(e['group_id'] == gid for e in self.confirmed_groups)
+
+    # ── Clasificación: Falso positivo ─────────────────────────────────────────
+
+    def mark_false_positive(self, row: dict, img: Image.Image):
+        gid = self._group_id(row)
+        if not any(e['group_id'] == gid for e in self.false_positives):
+            path = self.group_fp_img_dir / f'grupo_{gid}.jpg'
+            self.false_positives.append(self._row_record(row, path))
+            img.save(path, format='JPEG', quality=92)
+        self._remove_pending(row)
+
+    def unmark_false_positive(self, row: dict):
+        gid  = self._group_id(row)
+        path = self.group_fp_img_dir / f'grupo_{gid}.jpg'
+        self.false_positives = [e for e in self.false_positives
+                                 if e['group_id'] != gid]
+        if path.exists():
+            path.unlink()
+
+    def is_false_positive(self, row: dict) -> bool:
+        gid = self._group_id(row)
+        return any(e['group_id'] == gid for e in self.false_positives)
+
+    # ── Clasificación: Posible merger ─────────────────────────────────────────
+
+    def mark_possible_merger(self, row: dict, img: Image.Image):
+        gid = self._group_id(row)
+        if not any(e['group_id'] == gid for e in self.possible_mergers):
+            path = self.group_pm_img_dir / f'grupo_{gid}.jpg'
+            self.possible_mergers.append(self._row_record(row, path))
+            img.save(path, format='JPEG', quality=92)
+        self._remove_pending(row)
+
+    def unmark_possible_merger(self, row: dict):
+        gid  = self._group_id(row)
+        path = self.group_pm_img_dir / f'grupo_{gid}.jpg'
+        self.possible_mergers = [e for e in self.possible_mergers
+                                  if e['group_id'] != gid]
+        if path.exists():
+            path.unlink()
+
+    def is_possible_merger(self, row: dict) -> bool:
+        gid = self._group_id(row)
+        return any(e['group_id'] == gid for e in self.possible_mergers)
+
+    # ── Clasificación: Posible par (dentro de un grupo) ───────────────────────
+
+    def mark_possible_pair(self, row: dict, img: Image.Image):
+        gid = self._group_id(row)
+        if not any(e['group_id'] == gid for e in self.possible_pairs):
+            path = self.group_pp_img_dir / f'grupo_{gid}.jpg'
+            self.possible_pairs.append(self._row_record(row, path))
+            img.save(path, format='JPEG', quality=92)
+        self._remove_pending(row)
+
+    def unmark_possible_pair(self, row: dict):
+        gid  = self._group_id(row)
+        path = self.group_pp_img_dir / f'grupo_{gid}.jpg'
+        self.possible_pairs = [e for e in self.possible_pairs
+                                if e['group_id'] != gid]
+        if path.exists():
+            path.unlink()
+
+    def is_possible_pair(self, row: dict) -> bool:
+        gid = self._group_id(row)
+        return any(e['group_id'] == gid for e in self.possible_pairs)
+
+    # ── Pending retry ─────────────────────────────────────────────────────────
+
+    def add_pending(self, row: dict):
+        gid = self._group_id(row)
+        if any(e['group_id'] == gid for e in self.pending_retry):
+            return
+        if (self.is_confirmed_group(row) or
+                self.is_false_positive(row) or
+                self.is_possible_merger(row) or
+                self.is_possible_pair(row)):
+            return
+        self.pending_retry.append({
+            'group_id':   gid,
+            'ra_center':  float(row.get('ra_center', 0)),
+            'dec_center': float(row.get('dec_center', 0)),
+        })
+
+    def _remove_pending(self, row: dict):
+        gid = self._group_id(row)
+        self.pending_retry = [e for e in self.pending_retry
+                               if e['group_id'] != gid]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CELDA DE IMAGEN — widget Tkinter para un par individual
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -601,7 +1053,7 @@ class PairCell:
             self.frame, textvariable=self._coord_var,
             state='readonly', readonlybackground='#141414',
             fg='#eeeeee', font=('Courier', 13),
-            relief='flat', justify='center', cursor='xterm', width=36)
+            relief='flat', justify='center', cursor='xterm', width=46)
         self.coord_label.pack(pady=(4, 0))
 
         # Botones de clasificación
@@ -624,7 +1076,13 @@ class PairCell:
                                 command=lambda: self.on_classify(self.index, 'M'))
         self.btn_m.pack(side='left', padx=4)
 
+        self.btn_pp = ttk.Button(btn_frame, text='[PP] Poss. Pair',
+                                 style='Cell.TButton', cursor='hand2',
+                                 command=lambda: self.on_classify(self.index, 'PP'))
+        # Solo visible en modo grupos; se muestra desde set_group_mode(True)
+
         # Botón de reintento — solo visible cuando la descarga falló
+        # (se define aquí; set_group_mode() actualiza btn_p según el modo)
         self.btn_retry_img = ttk.Button(
             self.frame, text='🔄  Retry download',
             style='Retry.TButton', cursor='hand2',
@@ -635,11 +1093,16 @@ class PairCell:
         """Doble clic: abre el Legacy Survey Sky Viewer en el navegador."""
         if self.row_data is None:
             return
-        rd      = self.row_data
-        ra_mid  = (rd['ra1'] + rd['ra2']) / 2.0
-        dec_mid = (rd['dec1'] + rd['dec2']) / 2.0
-        sep     = float(rd.get('sep_arcsec', 10.0))
-        url     = _skyviewer_url(ra_mid, dec_mid, sep)
+        rd = self.row_data
+        if 'ra_center' in rd:   # celda de grupo
+            ra_mid  = float(rd['ra_center'])
+            dec_mid = float(rd['dec_center'])
+            sep     = float(rd.get('max_sep_arcsec', 10.0))
+        else:                   # celda de par
+            ra_mid  = (rd['ra1'] + rd['ra2']) / 2.0
+            dec_mid = (rd['dec1'] + rd['dec2']) / 2.0
+            sep     = float(rd.get('sep_arcsec', 10.0))
+        url = _skyviewer_url(ra_mid, dec_mid, sep)
         webbrowser.open(url)
 
     def _show_context_menu(self, event):
@@ -680,34 +1143,61 @@ class PairCell:
         # Forzar redibujado del canvas inmediatamente (fix macOS)
         self.canvas.update_idletasks()
 
-        # Coordenadas del midpoint y rp
-        ra_mid  = (row_data['ra1'] + row_data['ra2']) / 2.0
-        dec_mid = (row_data['dec1'] + row_data['dec2']) / 2.0
-        rp_val  = row_data.get(validator.rp_col, None) if validator.rp_col else None
-        if rp_val is not None:
-            self._coord_var.set(f'RA {ra_mid:.5f}  Dec {dec_mid:.5f}  rp={rp_val:.2f} kpc')
+        # Coordenadas del midpoint y rp (soporta tanto pares como grupos)
+        if 'ra_center' in row_data:
+            ra_mid  = float(row_data['ra_center'])
+            dec_mid = float(row_data['dec_center'])
         else:
-            self._coord_var.set(f'RA {ra_mid:.5f}  Dec {dec_mid:.5f}')
+            ra_mid  = (row_data['ra1'] + row_data['ra2']) / 2.0
+            dec_mid = (row_data['dec1'] + row_data['dec2']) / 2.0
+        rp_val  = row_data.get(validator.rp_col, None) if validator.rp_col else None
+        rp_str  = f'  rp={rp_val:.2f} kpc' if rp_val is not None else ''
+
+        # Badge de grupo: solo para pares con componente FoF de N≥3
+        fof_id = row_data.get('fof_component_id', None)
+        fof_n  = row_data.get('component_size',   None)
+        if (fof_id is not None and fof_n is not None
+                and int(fof_n) >= 3 and 'ra_center' not in row_data):
+            group_badge = f'  [Grp #{int(fof_id)}, N={int(fof_n)}]'
+        else:
+            group_badge = ''
+
+        self._coord_var.set(f'RA {ra_mid:.5f}  Dec {dec_mid:.5f}{rp_str}{group_badge}')
 
         # Actualizar estado visual de botones
         self._update_btn_state(validator)
         self.set_selected(self.selected)
 
-    def _update_btn_state(self, validator: PairValidator):
-        """Resalta el botón activo según la clasificación actual."""
+    def _update_btn_state(self, validator):
+        """Resalta el botón activo según la clasificación actual.
+        Acepta tanto PairValidator como GroupValidator."""
         if self.row_data is None:
             return
         is_fp  = validator.is_false_positive(self.row_data)
         is_pm  = validator.is_possible_merger(self.row_data)
-        is_par = validator.is_confirmed_pair(self.row_data)
+
+        # Detectar si es validador de grupos o de pares
+        is_group_mode = isinstance(validator, GroupValidator)
+
+        if is_group_mode:
+            is_grp = validator.is_confirmed_group(self.row_data)
+            is_pp  = validator.is_possible_pair(self.row_data)
+            self.btn_p.configure(
+                style='CellActive.TButton' if is_grp else 'Cell.TButton',
+                text='[G] Group ✓'         if is_grp else '[G] Group')
+            self.btn_pp.configure(
+                style='CellActive.TButton' if is_pp  else 'Cell.TButton',
+                text='[PP] Poss. Pair ✓'   if is_pp  else '[PP] Poss. Pair')
+        else:
+            is_par = validator.is_confirmed_pair(self.row_data)
+            self.btn_p.configure(
+                style='CellActive.TButton' if is_par else 'Cell.TButton',
+                text='[P] Pair ✓'          if is_par else '[P] Pair')
 
         # Cambia texto (✓) y estilo ttk según clasificación activa
         self.btn_f.configure(
             style='CellActive.TButton' if is_fp  else 'Cell.TButton',
             text='[F] False pos. ✓'    if is_fp  else '[F] False pos.')
-        self.btn_p.configure(
-            style='CellActive.TButton' if is_par else 'Cell.TButton',
-            text='[P] Pair ✓'          if is_par else '[P] Pair')
         self.btn_m.configure(
             style='CellActive.TButton' if is_pm  else 'Cell.TButton',
             text='[M] Merger ✓'        if is_pm  else '[M] Merger')
@@ -717,7 +1207,11 @@ class PairCell:
             bg = BG_FP
         elif is_pm:
             bg = BG_PM
-        elif is_par:
+        elif is_group_mode and validator.is_confirmed_group(self.row_data):
+            bg = BG_GROUP
+        elif is_group_mode and validator.is_possible_pair(self.row_data):
+            bg = BG_PP
+        elif not is_group_mode and validator.is_confirmed_pair(self.row_data):
             bg = BG_PAIR
         else:
             bg = BG_DEFAULT
@@ -728,6 +1222,19 @@ class PairCell:
         self.canvas.config(bg=bg)
         if not self.selected:
             self.frame.config(highlightbackground='#444')
+
+    def set_group_mode(self, group_mode: bool):
+        """Cambia el botón [P]/[G] y el menú contextual según el modo activo."""
+        if group_mode:
+            self.btn_p.configure(
+                text='[G] Group',
+                command=lambda: self.on_classify(self.index, 'G'))
+            self.btn_pp.pack(side='left', padx=4)
+        else:
+            self.btn_p.configure(
+                text='[P] Pair',
+                command=lambda: self.on_classify(self.index, 'P'))
+            self.btn_pp.pack_forget()
 
     def set_selected(self, selected: bool):
         self.selected = selected
@@ -746,7 +1253,9 @@ class PairCell:
         self._coord_var.set('')
         self.btn_retry_img.pack_forget()
         self.btn_f.configure(style='Cell.TButton', text='[F] False pos.')
-        self.btn_p.configure(style='Cell.TButton', text='[P] Pair')
+        # btn_p mantiene su etiqueta actual ([P]/[G]) pero sin el ✓
+        cur_p_text = self.btn_p.cget('text').replace(' ✓', '')
+        self.btn_p.configure(style='Cell.TButton', text=cur_p_text)
         self.btn_m.configure(style='Cell.TButton', text='[M] Merger')
         self.frame.config(bg=BG_DEFAULT, highlightbackground='#444')
 
@@ -761,9 +1270,13 @@ class PairInspectorApp:
     Maneja navegación por teclado, prefetch en background y clasificación.
     """
 
-    def __init__(self, root: tk.Tk, validator: PairValidator):
-        self.root      = root
-        self.v         = validator
+    def __init__(self, root: tk.Tk, validator: PairValidator,
+                 group_validator: 'GroupValidator | None' = None):
+        self.root            = root
+        self.v               = validator        # validador activo (pares o grupos)
+        self._pair_validator = validator        # siempre disponible para volver
+        self._group_validator = group_validator  # None si no hay catálogo de grupos
+        self.mode            = 'both' if group_validator is not None else 'pairs'
         self.cells: list[PairCell] = []
         self.selected_idx = 0          # índice de celda seleccionada (0–7)
 
@@ -848,6 +1361,19 @@ class PairInspectorApp:
         _s.map('Nav.Go.TButton',
                background=[('active', '#3a6a9a'), ('pressed', '#1a3050')],
                foreground=[('active', 'white'),   ('pressed', 'white')])
+        # Estilo para el botón de modo Grupos
+        _s.configure('Nav.Groups.TButton', foreground='#88ccff', background='#102040',
+                     font=('Arial', 11, 'bold'),
+                     borderwidth=0, focusthickness=0, focuscolor='none', padding=(10, 4))
+        _s.map('Nav.Groups.TButton',
+               background=[('active', '#1a3060'), ('pressed', '#0a1830')],
+               foreground=[('active', '#aaddff'), ('pressed', '#88ccff')])
+        _s.configure('Nav.GroupsActive.TButton', foreground='#ffffff', background='#1a4080',
+                     font=('Arial', 11, 'bold'),
+                     borderwidth=1, focusthickness=0, focuscolor='none', padding=(10, 4))
+        _s.map('Nav.GroupsActive.TButton',
+               background=[('active', '#2a60c0'), ('pressed', '#0a2060')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
 
         # ── Barra superior ────────────────────────────────────────────────────
         top = tk.Frame(self.root, bg='#111111', pady=4)
@@ -878,6 +1404,7 @@ class PairInspectorApp:
         ttk.Button(top, text='Export CSV (Ctrl+E)', style='Nav.Export.TButton',
                    cursor='hand2', command=self._export).pack(side='left', padx=4)
 
+
         # ── Menú ⚙ con opciones avanzadas (Limpiar guardadas, etc.) ──────────
         options_mb = tk.Menubutton(top, text='⚙', font=('Arial', 13, 'bold'),
                                    bg='#333333', fg='#aaaaaa',
@@ -898,7 +1425,7 @@ class PairInspectorApp:
         # ── Barra de búsqueda por ID de par ───────────────────────────────────
         tk.Frame(top, bg='#444444', width=1).pack(side='left', fill='y',
                                                    padx=8, pady=2)
-        tk.Label(top, text='Go to pair #', bg='#111111', fg='#aaaaaa',
+        tk.Label(top, text='Go to #', bg='#111111', fg='#aaaaaa',
                  font=('Arial', 11)).pack(side='left')
         self._search_var = tk.StringVar()
         search_entry = tk.Entry(top, textvariable=self._search_var,
@@ -906,10 +1433,10 @@ class PairInspectorApp:
                                 bg='#2a2a2a', fg='white',
                                 insertbackground='white', relief='flat')
         search_entry.pack(side='left', padx=(2, 4))
-        search_entry.bind('<Return>', lambda e: self._search_pair())
+        search_entry.bind('<Return>', lambda e: self._search())
         ttk.Button(top, text='Go', style='Nav.Go.TButton',
                    cursor='hand2',
-                   command=self._search_pair).pack(side='left')
+                   command=self._search).pack(side='left')
 
         self.lbl_status = tk.Label(top, text='Loading…', bg='#111111',
                                    fg='#888888', font=('Arial', 10, 'italic'))
@@ -945,6 +1472,11 @@ class PairInspectorApp:
         # Resaltar la primera celda
         self.cells[0].set_selected(True)
 
+        # En modo 'both': celdas 4-7 siempre muestran grupos
+        if self.mode == 'both':
+            for cell in self.cells[GRID_COLS:]:
+                cell.set_group_mode(True)
+
         # macOS: forzar redibujado completo cada vez que la ventana gana foco.
         # Sin esto los Canvas quedan en blanco mientras la ventana está activa.
         self.root.bind('<FocusIn>', lambda e: self.root.update_idletasks())
@@ -962,36 +1494,79 @@ class PairInspectorApp:
         self.root.bind('<P>',          lambda e: self._classify_selected('P'))
         self.root.bind('<m>',          lambda e: self._classify_selected('M'))
         self.root.bind('<M>',          lambda e: self._classify_selected('M'))
+        self.root.bind('<g>',          lambda e: self._classify_selected('G'))
+        self.root.bind('<G>',          lambda e: self._classify_selected('G'))
         self.root.bind('<Control-e>',  lambda e: self._export())
 
     # ── Actualización de barra de estado ──────────────────────────────────────
 
     def _update_status_bar(self):
+        if self.mode == 'both':
+            pv = self._pair_validator
+            gv = self._group_validator
+            p_total = len(pv.df)
+            g_total = len(gv.df)
+            p_pct   = 100 * pv.current_index / p_total if p_total else 0
+            g_pct   = 100 * gv.current_index / g_total if g_total else 0
+            self.lbl_progress.config(
+                text=(f'Pares: {pv.current_index:,}/{p_total:,} ({p_pct:.0f}%)  ‖  '
+                      f'Grupos: {gv.current_index:,}/{g_total:,} ({g_pct:.0f}%)'))
+            self.lbl_counts.config(
+                text=(f'P·FP:{len(pv.false_positives)} P:{len(pv.confirmed_pairs)} M:{len(pv.possible_mergers)}'
+                      f'  ‖  '
+                      f'G·FP:{len(gv.false_positives)} G:{len(gv.confirmed_groups)} M:{len(gv.possible_mergers)}'))
+            return
+
         idx   = self.v.current_index
         total = len(self.v.df)
         pct   = 100 * idx / total if total else 0
         self.lbl_progress.config(
             text=f'Revisados: {idx:,} / {total:,}  ({pct:.1f}%)')
-        self.lbl_counts.config(
-            text=(f'FP: {len(self.v.false_positives)}  |  '
-                  f'Mergers: {len(self.v.possible_mergers)}  |  '
-                  f'Pares: {len(self.v.confirmed_pairs)}  |  '
-                  f'Sin img: {len(self.v.pending_retry)}'))
+
+        if self.mode == 'groups':
+            gv = self.v   # GroupValidator
+            self.lbl_counts.config(
+                text=(f'FP: {len(gv.false_positives)}  |  '
+                      f'Mergers: {len(gv.possible_mergers)}  |  '
+                      f'Grupos: {len(gv.confirmed_groups)}  |  '
+                      f'Sin img: {len(gv.pending_retry)}'))
+        else:
+            self.lbl_counts.config(
+                text=(f'FP: {len(self.v.false_positives)}  |  '
+                      f'Mergers: {len(self.v.possible_mergers)}  |  '
+                      f'Pares: {len(self.v.confirmed_pairs)}  |  '
+                      f'Sin img: {len(self.v.pending_retry)}'))
 
     # ── Navegación de páginas ─────────────────────────────────────────────────
 
     def _next_page(self):
-        self.v.advance(PAGE_SIZE)
-        self.v.save_progress()
+        if self.mode == 'both':
+            self._pair_validator.advance(GRID_COLS)
+            self._pair_validator.save_progress()
+            self._group_validator.advance(GRID_COLS)
+            self._group_validator.save_progress()
+        else:
+            self.v.advance(PAGE_SIZE)
+            self.v.save_progress()
         self._load_page(direction='next')
 
     def _prev_page(self):
-        self.v.go_back(PAGE_SIZE)
-        self.v.save_progress()
+        if self.mode == 'both':
+            self._pair_validator.go_back(GRID_COLS)
+            self._pair_validator.save_progress()
+            self._group_validator.go_back(GRID_COLS)
+            self._group_validator.save_progress()
+        else:
+            self.v.go_back(PAGE_SIZE)
+            self.v.save_progress()
         self._load_page(direction='prev')
 
     def _load_page(self, direction='next', first=False):
-        """Renderiza la página actual. Usa prefetch si está disponible."""
+        """Renderiza la página actual. En modo 'both' delega a _load_page_both."""
+        if self.mode == 'both':
+            self._load_page_both()
+            return
+
         page = self.v.get_page(PAGE_SIZE)
 
         if page.empty:
@@ -1005,10 +1580,18 @@ class PairInspectorApp:
         row_list = []
         for _, row in page.iterrows():
             d = row.to_dict()
-            if 'sep_arcsec' not in d or pd.isna(d.get('sep_arcsec', float('nan'))):
-                d['sep_arcsec'] = float(np.hypot(
-                    (d['ra1']-d['ra2'])*np.cos(np.radians((d['dec1']+d['dec2'])/2))*3600,
-                    (d['dec1']-d['dec2'])*3600))
+            # Calcular sep_arcsec solo en modo pares
+            if self.mode == 'pairs':
+                if 'sep_arcsec' not in d or pd.isna(d.get('sep_arcsec', float('nan'))):
+                    d['sep_arcsec'] = float(np.hypot(
+                        (d['ra1']-d['ra2'])*np.cos(np.radians((d['dec1']+d['dec2'])/2))*3600,
+                        (d['dec1']-d['dec2'])*3600))
+            # En modo grupos: deserializar listas si vienen como numpy arrays
+            elif self.mode == 'groups':
+                for col in ('member_ra', 'member_dec', 'member_z',
+                            'member_ids', 'member_flux_r'):
+                    if col in d and hasattr(d[col], 'tolist'):
+                        d[col] = d[col].tolist()
             row_list.append(d)
 
         # ¿Hay prefetch listo para esta dirección?
@@ -1028,19 +1611,29 @@ class PairInspectorApp:
         if raw_imgs is None:
             self.lbl_status.config(text='Downloading images…')
             self.root.update_idletasks()
-            raw_imgs = fetch_page_parallel(row_list)
+            if self.mode == 'groups':
+                raw_imgs = fetch_groups_parallel(row_list)
+            else:
+                raw_imgs = fetch_page_parallel(row_list)
 
         # Anotar imágenes y cargar celdas
         self._current_imgs = []
         self._current_raws = []
         for i, (raw, rd) in enumerate(zip(raw_imgs, row_list)):
             if raw is not None:
-                annotated = annotate_image(raw, rd, self.v.rp_col)
-                err_msg   = ''
+                if self.mode == 'groups':
+                    annotated = annotate_image_group(raw, rd)
+                else:
+                    annotated = annotate_image(raw, rd, self.v.rp_col)
+                err_msg = ''
             else:
                 annotated = None
                 self.v.add_pending(rd)
-                key     = (round((rd['ra1']+rd['ra2'])/2, 5),
+                if self.mode == 'groups':
+                    key = (round(rd.get('ra_center', 0), 5),
+                           round(rd.get('dec_center', 0), 5))
+                else:
+                    key = (round((rd['ra1']+rd['ra2'])/2, 5),
                            round((rd['dec1']+rd['dec2'])/2, 5))
                 err_msg = _fetch_errors.get(key, 'Error desconocido')
 
@@ -1067,8 +1660,112 @@ class PairInspectorApp:
         # Lanzar prefetch de la siguiente página en background
         self._launch_prefetch()
 
+    def _load_page_both(self):
+        """Carga 4 pares (celdas 0-3) + 4 grupos (celdas 4-7) en paralelo."""
+        pv = self._pair_validator
+        gv = self._group_validator
+
+        pair_page  = pv.get_page(GRID_COLS)
+        group_page = gv.get_page(GRID_COLS)
+
+        if pair_page.empty and group_page.empty:
+            self.lbl_status.config(text='✓ All reviewed')
+            for cell in self.cells:
+                cell.clear()
+            self._update_status_bar()
+            return
+
+        # Construir listas de dicts
+        pair_rows = []
+        for _, row in pair_page.iterrows():
+            d = row.to_dict()
+            if 'sep_arcsec' not in d or pd.isna(d.get('sep_arcsec', float('nan'))):
+                d['sep_arcsec'] = float(np.hypot(
+                    (d['ra1']-d['ra2'])*np.cos(np.radians((d['dec1']+d['dec2'])/2))*3600,
+                    (d['dec1']-d['dec2'])*3600))
+            pair_rows.append(d)
+
+        group_rows = []
+        for _, row in group_page.iterrows():
+            d = row.to_dict()
+            for col in ('member_ra', 'member_dec', 'member_z', 'member_ids'):
+                if col in d and hasattr(d[col], 'tolist'):
+                    d[col] = d[col].tolist()
+            group_rows.append(d)
+
+        self.lbl_status.config(text='Downloading images…')
+        self.root.update_idletasks()
+
+        # Descargar pares y grupos en hilos separados
+        pair_raws_holder  = [None]
+        group_raws_holder = [None]
+
+        def _fetch_pairs():
+            pair_raws_holder[0] = fetch_page_parallel(pair_rows) if pair_rows else []
+
+        def _fetch_groups():
+            group_raws_holder[0] = fetch_groups_parallel(group_rows) if group_rows else []
+
+        t1 = threading.Thread(target=_fetch_pairs)
+        t2 = threading.Thread(target=_fetch_groups)
+        t1.start(); t2.start()
+        t1.join();  t2.join()
+
+        pair_raws  = pair_raws_holder[0]
+        group_raws = group_raws_holder[0]
+
+        self._current_imgs = [None] * PAGE_SIZE
+        self._current_raws = [None] * PAGE_SIZE
+
+        # Cargar celdas de pares (0-3)
+        for i, (raw, rd) in enumerate(zip(pair_raws, pair_rows)):
+            if raw is not None:
+                annotated = annotate_image(raw, rd, pv.rp_col)
+                err_msg = ''
+            else:
+                annotated = None
+                pv.add_pending(rd)
+                key = (round((rd['ra1']+rd['ra2'])/2, 5),
+                       round((rd['dec1']+rd['dec2'])/2, 5))
+                err_msg = _fetch_errors.get(key, 'Error desconocido')
+            self._current_imgs[i] = annotated
+            self._current_raws[i] = raw
+            self.cells[i].load(rd, annotated, pv, error_msg=err_msg)
+        for i in range(len(pair_rows), GRID_COLS):
+            self.cells[i].clear()
+
+        # Cargar celdas de grupos (4-7)
+        for i, (raw, rd) in enumerate(zip(group_raws, group_rows)):
+            ci = i + GRID_COLS
+            if raw is not None:
+                annotated = annotate_image_group(raw, rd)
+                err_msg = ''
+            else:
+                annotated = None
+                gv.add_pending(rd)
+                key = (round(rd.get('ra_center', 0), 5),
+                       round(rd.get('dec_center', 0), 5))
+                err_msg = _fetch_errors.get(key, 'Error desconocido')
+            self._current_imgs[ci] = annotated
+            self._current_raws[ci] = raw
+            self.cells[ci].load(rd, annotated, gv, error_msg=err_msg)
+        for i in range(len(group_rows), GRID_COLS):
+            self.cells[i + GRID_COLS].clear()
+
+        self._select_cell(0)
+        self._update_status_bar()
+        p_start = max(0, pv.current_index - len(pair_rows))
+        g_start = max(0, gv.current_index - len(group_rows))
+        self.lbl_status.config(
+            text=(f'Pares {p_start+1}–{pv.current_index} de {len(pv.df):,}  |  '
+                  f'Grupos {g_start+1}–{gv.current_index} de {len(gv.df):,}'))
+        self.root.update()
+
     def _launch_prefetch(self):
         """Descarga la siguiente página en un hilo separado."""
+        if self.mode == 'both':
+            return   # _load_page_both ya descarga pares y grupos en paralelo
+
         next_start = self.v.current_index
         next_end   = min(next_start + PAGE_SIZE, len(self.v.df))
         if next_start >= len(self.v.df):
@@ -1078,14 +1775,25 @@ class PairInspectorApp:
         row_list = []
         for _, row in page.iterrows():
             d = row.to_dict()
-            if 'sep_arcsec' not in d or pd.isna(d.get('sep_arcsec', float('nan'))):
-                d['sep_arcsec'] = float(np.hypot(
-                    (d['ra1']-d['ra2'])*np.cos(np.radians((d['dec1']+d['dec2'])/2))*3600,
-                    (d['dec1']-d['dec2'])*3600))
+            if self.mode == 'pairs':
+                if 'sep_arcsec' not in d or pd.isna(d.get('sep_arcsec', float('nan'))):
+                    d['sep_arcsec'] = float(np.hypot(
+                        (d['ra1']-d['ra2'])*np.cos(np.radians((d['dec1']+d['dec2'])/2))*3600,
+                        (d['dec1']-d['dec2'])*3600))
+            elif self.mode == 'groups':
+                for col in ('member_ra', 'member_dec', 'member_z',
+                            'member_ids', 'member_flux_r'):
+                    if col in d and hasattr(d[col], 'tolist'):
+                        d[col] = d[col].tolist()
             row_list.append(d)
 
+        _mode_snapshot = self.mode   # capturar modo actual para el hilo
+
         def _do_prefetch():
-            imgs = fetch_page_parallel(row_list)
+            if _mode_snapshot == 'groups':
+                imgs = fetch_groups_parallel(row_list)
+            else:
+                imgs = fetch_page_parallel(row_list)
             with self._prefetch_lock:
                 self._prefetch_rows  = row_list
                 self._prefetch_imgs  = imgs
@@ -1123,6 +1831,14 @@ class PairInspectorApp:
         """Clasifica la celda actualmente seleccionada."""
         self._classify(self.selected_idx, label)
 
+    def _get_validator_for_cell(self, cell_idx: int):
+        """Devuelve el validador correcto según el índice de celda."""
+        if self.mode == 'both' and cell_idx >= GRID_COLS:
+            return self._group_validator
+        if self.mode == 'both':
+            return self._pair_validator
+        return self.v
+
     def _classify(self, cell_idx: int, label: str):
         """Aplica o revierte una clasificación en la celda dada."""
         cell = self.cells[cell_idx]
@@ -1136,42 +1852,92 @@ class PairInspectorApp:
             self.lbl_status.config(text='No image — cannot classify')
             return
 
-        if label == 'F':
-            if self.v.is_false_positive(row):
-                self.v.unmark_false_positive(row)
-            else:
-                self.v.mark_false_positive(row, img)
-                # Quitar otras clasificaciones mutuamente excluyentes
-                self.v.unmark_possible_merger(row)
-                self.v.unmark_confirmed_pair(row)
+        is_group_cell = (self.mode == 'both' and cell_idx >= GRID_COLS) or self.mode == 'groups'
 
-        elif label == 'P':
-            if self.v.is_confirmed_pair(row):
-                self.v.unmark_confirmed_pair(row)
-            else:
-                self.v.mark_confirmed_pair(row, img)
-                self.v.unmark_false_positive(row)
-                self.v.unmark_possible_merger(row)
+        if is_group_cell:
+            # ── Modo grupos ───────────────────────────────────────────────────
+            gv = self._group_validator if self.mode == 'both' else self.v
+            if label == 'F':
+                if gv.is_false_positive(row):
+                    gv.unmark_false_positive(row)
+                else:
+                    gv.mark_false_positive(row, img)
+                    gv.unmark_possible_merger(row)
+                    gv.unmark_confirmed_group(row)
+                    gv.unmark_possible_pair(row)
+            elif label == 'G':
+                if gv.is_confirmed_group(row):
+                    gv.unmark_confirmed_group(row)
+                else:
+                    gv.mark_confirmed_group(row, img)
+                    gv.unmark_false_positive(row)
+                    gv.unmark_possible_merger(row)
+                    gv.unmark_possible_pair(row)
+            elif label == 'M':
+                if gv.is_possible_merger(row):
+                    gv.unmark_possible_merger(row)
+                else:
+                    gv.mark_possible_merger(row, img)
+                    gv.unmark_false_positive(row)
+                    gv.unmark_confirmed_group(row)
+                    gv.unmark_possible_pair(row)
+            elif label == 'PP':
+                if gv.is_possible_pair(row):
+                    gv.unmark_possible_pair(row)
+                else:
+                    gv.mark_possible_pair(row, img)
+                    gv.unmark_false_positive(row)
+                    gv.unmark_confirmed_group(row)
+                    gv.unmark_possible_merger(row)
 
-        elif label == 'M':
-            if self.v.is_possible_merger(row):
-                self.v.unmark_possible_merger(row)
-            else:
-                self.v.mark_possible_merger(row, img)
-                self.v.unmark_false_positive(row)
-                self.v.unmark_confirmed_pair(row)
+            # Supabase: usa group_id + OFFSET para no colisionar con pares
+            gid = int(row.get('group_id', 0))
+            if gid:
+                supa_id = gid + GroupValidator.SUPABASE_OFFSET
+                if   gv.is_false_positive(row):   _supabase_upsert(supa_id, 'FP')
+                elif gv.is_confirmed_group(row):   _supabase_upsert(supa_id, 'GROUP')
+                elif gv.is_possible_merger(row):   _supabase_upsert(supa_id, 'PM')
+                elif gv.is_possible_pair(row):     _supabase_upsert(supa_id, 'PP')
 
-        # Refrescar estado visual de la celda
-        cell._update_btn_state(self.v)
-        self._update_status_bar()
-        # Auto-save locally on every classification
-        self.v.save_progress()
-        # Auto-save to Supabase in background
-        id_par = int(row.get('id_par', 0))
-        if id_par:
-            if   self.v.is_false_positive(row):   _supabase_upsert(id_par, 'FP')
-            elif self.v.is_confirmed_pair(row):    _supabase_upsert(id_par, 'Pair')
-            elif self.v.is_possible_merger(row):   _supabase_upsert(id_par, 'PM')
+            cell._update_btn_state(gv)
+            self._update_status_bar()
+            gv.save_progress()
+
+        else:
+            # ── Modo pares ────────────────────────────────────────────────────
+            pv = self._pair_validator if self.mode == 'both' else self.v
+            if label == 'F':
+                if pv.is_false_positive(row):
+                    pv.unmark_false_positive(row)
+                else:
+                    pv.mark_false_positive(row, img)
+                    pv.unmark_possible_merger(row)
+                    pv.unmark_confirmed_pair(row)
+            elif label == 'P':
+                if pv.is_confirmed_pair(row):
+                    pv.unmark_confirmed_pair(row)
+                else:
+                    pv.mark_confirmed_pair(row, img)
+                    pv.unmark_false_positive(row)
+                    pv.unmark_possible_merger(row)
+            elif label == 'M':
+                if pv.is_possible_merger(row):
+                    pv.unmark_possible_merger(row)
+                else:
+                    pv.mark_possible_merger(row, img)
+                    pv.unmark_false_positive(row)
+                    pv.unmark_confirmed_pair(row)
+
+            # Supabase
+            id_par = int(row.get('id_par', 0))
+            if id_par:
+                if   pv.is_false_positive(row):   _supabase_upsert(id_par, 'FP')
+                elif pv.is_confirmed_pair(row):    _supabase_upsert(id_par, 'Pair')
+                elif pv.is_possible_merger(row):   _supabase_upsert(id_par, 'PM')
+
+            cell._update_btn_state(pv)
+            self._update_status_bar()
+            pv.save_progress()
 
     # ── Reintento de página completa y por celda ──────────────────────────────
 
@@ -1189,9 +1955,14 @@ class PairInspectorApp:
 
         def _do():
             for idx in failed:
-                rd  = self.cells[idx].row_data
-                raw = _fetch_one(rd['ra1'], rd['dec1'], rd['ra2'], rd['dec2'],
-                                 rd['sep_arcsec'])
+                rd = self.cells[idx].row_data
+                is_group = (self.mode == 'both' and idx >= GRID_COLS) or self.mode == 'groups'
+                if is_group:
+                    raw = _fetch_group_one(rd['ra_center'], rd['dec_center'],
+                                           rd.get('max_sep_arcsec', 10.0))
+                else:
+                    raw = _fetch_one(rd['ra1'], rd['dec1'], rd['ra2'], rd['dec2'],
+                                     rd['sep_arcsec'])
                 self.root.after(0, lambda i=idx, r=raw, d=rd: self._retry_done(i, d, r))
             self.root.after(0, self._retry_page_done)
 
@@ -1215,8 +1986,13 @@ class PairInspectorApp:
         self.root.update_idletasks()
 
         def _do():
-            raw = _fetch_one(rd['ra1'], rd['dec1'], rd['ra2'], rd['dec2'],
-                             rd['sep_arcsec'])
+            is_group = (self.mode == 'both' and cell_idx >= GRID_COLS) or self.mode == 'groups'
+            if is_group:
+                raw = _fetch_group_one(rd['ra_center'], rd['dec_center'],
+                                       rd.get('max_sep_arcsec', 10.0))
+            else:
+                raw = _fetch_one(rd['ra1'], rd['dec1'], rd['ra2'], rd['dec2'],
+                                 rd['sep_arcsec'])
             self.root.after(0, lambda: self._retry_done(cell_idx, rd, raw))
 
         threading.Thread(target=_do, daemon=True).start()
@@ -1226,18 +2002,31 @@ class PairInspectorApp:
         cell = self.cells[cell_idx]
         cell.btn_retry_img.config(text='🔄  Retry download', state='normal')
 
+        v          = self._get_validator_for_cell(cell_idx)
+        is_group   = (self.mode == 'both' and cell_idx >= GRID_COLS) or self.mode == 'groups'
+
         if raw is not None:
-            annotated = annotate_image(raw, rd, self.v.rp_col)
+            if is_group:
+                annotated = annotate_image_group(raw, rd)
+            else:
+                annotated = annotate_image(raw, rd, v.rp_col)
             self._current_imgs[cell_idx] = annotated
-            self._current_raws[cell_idx] = raw          # guardar limpio
-            self.v.remove_pending(rd)
-            cell.load(rd, annotated, self.v, error_msg='')
+            self._current_raws[cell_idx] = raw
+            remove_fn = getattr(v, '_remove_pending',
+                                getattr(v, 'remove_pending', None))
+            if remove_fn:
+                remove_fn(rd)
+            cell.load(rd, annotated, v, error_msg='')
             self.lbl_status.config(text='Imagen descargada correctamente')
         else:
-            key     = (round((rd['ra1']+rd['ra2'])/2, 5),
+            if is_group:
+                key = (round(rd.get('ra_center', 0), 5),
+                       round(rd.get('dec_center', 0), 5))
+            else:
+                key = (round((rd['ra1']+rd['ra2'])/2, 5),
                        round((rd['dec1']+rd['dec2'])/2, 5))
             err_msg = _fetch_errors.get(key, 'Error desconocido')
-            cell.load(rd, None, self.v, error_msg=err_msg)
+            cell.load(rd, None, v, error_msg=err_msg)
             self.lbl_status.config(text=f'Falló de nuevo: {err_msg[:50]}')
 
         self._update_status_bar()
@@ -1392,46 +2181,261 @@ class PairInspectorApp:
                                     fill='#2a2a2a', outline='')
 
     def _export(self):
-        self.v.save_progress()
-        resultado = self.v.export_csv()
-        messagebox.showinfo('Export CSV', resultado)
+        if self.mode == 'both':
+            self._pair_validator.save_progress()
+            self._group_validator.save_progress()
+            res_pares  = self._pair_validator.export_csv()
+            res_grupos = self._group_validator.export_csv()
+            messagebox.showinfo('Export CSV',
+                                f'── Pares ──\n{res_pares}\n\n── Grupos ──\n{res_grupos}')
+        else:
+            self.v.save_progress()
+            resultado = self.v.export_csv()
+            messagebox.showinfo('Export CSV', resultado)
         self.lbl_status.config(text='CSV exported')
 
-    # ── Búsqueda por ID de par ────────────────────────────────────────────────
+    # ── Búsqueda por ID (par o grupo) ────────────────────────────────────────
 
-    def _search_pair(self):
+    def _search(self):
         query = self._search_var.get().strip()
         if not query:
             return
         try:
-            pair_id = int(query)
+            target_id = int(query)
         except ValueError:
             messagebox.showwarning('Búsqueda', 'Escribe un número entero (ej. 10).')
             return
 
-        # Buscar en el catálogo completo (no solo en la partición)
-        col = 'id_par' if 'id_par' in self.v.df_full.columns else None
-        if col is None:
-            messagebox.showwarning('Búsqueda', 'El catálogo no tiene columna id_par.')
+        found = []
+
+        # ── Buscar como id_par ────────────────────────────────────────────────
+        pv  = self._pair_validator
+        col = 'id_par' if 'id_par' in pv.df_full.columns else None
+        if col:
+            mask = pv.df_full[col] == target_id
+            if mask.any():
+                rd = pv.df_full[mask].iloc[0].to_dict()
+                if 'sep_arcsec' not in rd or pd.isna(rd.get('sep_arcsec', float('nan'))):
+                    rd['sep_arcsec'] = float(np.hypot(
+                        (rd['ra1']-rd['ra2'])*np.cos(np.radians(
+                            (rd['dec1']+rd['dec2'])/2))*3600,
+                        (rd['dec1']-rd['dec2'])*3600))
+                in_partition = (pv.df[col] == target_id).any()
+                if not in_partition:
+                    self.lbl_status.config(
+                        text=f'#{target_id} — par fuera de partición + busca grupo…')
+                found.append(('pair', rd))
+
+        # ── Buscar como group_id ──────────────────────────────────────────────
+        gv = self._group_validator
+        if gv is not None:
+            gmask = gv.df_full['group_id'] == target_id
+            if gmask.any():
+                rd = gv.df_full[gmask].iloc[0].to_dict()
+                for col_list in ('member_ra', 'member_dec', 'member_z', 'member_ids'):
+                    if col_list in rd and hasattr(rd[col_list], 'tolist'):
+                        rd[col_list] = rd[col_list].tolist()
+                found.append(('group', rd))
+
+        if not found:
+            messagebox.showwarning(
+                'Búsqueda',
+                f'#{target_id} no encontrado como id_par ni como group_id.')
             return
 
-        mask = self.v.df_full[col] == pair_id
-        if not mask.any():
-            messagebox.showwarning('Búsqueda', f'Par #{pair_id} no encontrado en el catálogo.')
-            return
+        labels = ' + '.join('par' if t == 'pair' else 'grupo' for t, _ in found)
+        self.lbl_status.config(text=f'#{target_id} → {labels}')
 
-        rd = self.v.df_full[mask].iloc[0].to_dict()
-        if 'sep_arcsec' not in rd or pd.isna(rd.get('sep_arcsec', float('nan'))):
-            rd['sep_arcsec'] = float(np.hypot(
-                (rd['ra1']-rd['ra2'])*np.cos(np.radians((rd['dec1']+rd['dec2'])/2))*3600,
-                (rd['dec1']-rd['dec2'])*3600))
+        # Abrir una ventana por cada resultado encontrado
+        for kind, rd in found:
+            if kind == 'pair':
+                self._open_detail_window(rd)
+            else:
+                self._open_group_detail_window(rd)
 
-        # Indicar si el par está fuera de la partición activa
-        in_partition = mask.any() and (self.v.df[col] == pair_id).any()
-        if not in_partition:
-            self.lbl_status.config(text=f'Par #{pair_id} — fuera de tu partición (solo vista)')
+    def _open_group_detail_window(self, row_data: dict):
+        """Ventana emergente con imagen ampliada para un grupo."""
+        gid      = int(row_data.get('group_id', '?'))
+        n        = int(row_data.get('n_members', 0))
+        DETAIL_PX = 520
 
-        self._open_detail_window(rd)
+        win = tk.Toplevel(self.root)
+        win.title(f'Detalle — Grupo #{gid}  N={n}')
+        win.configure(bg='#111111')
+        win.resizable(False, False)
+
+        canvas = tk.Canvas(win, width=DETAIL_PX, height=DETAIL_PX,
+                           bg='#1e1e1e', highlightthickness=0, cursor='hand2')
+        canvas.pack(padx=14, pady=(14, 4))
+
+        _tk_ref = [None]
+        _raw    = [None]
+
+        ph = make_error_tile('Descargando…').resize((DETAIL_PX, DETAIL_PX), Image.LANCZOS)
+        _tk_ref[0] = ImageTk.PhotoImage(ph)
+        canvas.create_image(0, 0, anchor='nw', image=_tk_ref[0])
+
+        ra_c  = float(row_data.get('ra_center',  0))
+        dec_c = float(row_data.get('dec_center', 0))
+        z_c   = float(row_data.get('z_center',   0))
+        rp    = float(row_data.get('rp_kpc_max', 0))
+
+        coord_var = tk.StringVar(value=f'RA {ra_c:.5f}  Dec {dec_c:.5f}  z={z_c:.4f}  rp_max={rp:.1f} kpc')
+        tk.Entry(win, textvariable=coord_var, state='readonly',
+                 readonlybackground='#141414', fg='#eeeeee',
+                 font=('Courier', 12), relief='flat',
+                 justify='center', cursor='xterm', width=52).pack(pady=(4, 0))
+
+        lbl_class = tk.Label(win, text='', bg='#111111', font=('Arial', 11, 'bold'))
+        lbl_class.pack(pady=(4, 0))
+
+        gv = self._group_validator
+
+        def _refresh_state():
+            is_fp  = gv.is_false_positive(row_data)
+            is_grp = gv.is_confirmed_group(row_data)
+            is_pm  = gv.is_possible_merger(row_data)
+            is_pp  = gv.is_possible_pair(row_data)
+            btn_f.config(relief='groove' if is_fp  else 'flat',
+                         text='[F] False pos. ✓' if is_fp  else '[F] False pos.')
+            btn_g.config(relief='groove' if is_grp else 'flat',
+                         text='[G] Group ✓'      if is_grp else '[G] Group')
+            btn_m.config(relief='groove' if is_pm  else 'flat',
+                         text='[M] Merger ✓'     if is_pm  else '[M] Merger')
+            btn_pp.config(relief='groove' if is_pp else 'flat',
+                          text='[PP] Poss. Pair ✓' if is_pp else '[PP] Poss. Pair')
+            if is_fp:    lbl_class.config(text='● Falso positivo',    fg='#ff6666')
+            elif is_grp: lbl_class.config(text='● Grupo confirmado',  fg='#6699ff')
+            elif is_pm:  lbl_class.config(text='● Merger',            fg='#ffaa44')
+            elif is_pp:  lbl_class.config(text='● Posible par',       fg='#4dccaa')
+            else:        lbl_class.config(text='Sin clasificar',      fg='#666666')
+
+        def _classify(label):
+            if _raw[0] is None:
+                return
+            if label == 'F':
+                if gv.is_false_positive(row_data): gv.unmark_false_positive(row_data)
+                else:
+                    gv.mark_false_positive(row_data, _raw[0])
+                    gv.unmark_confirmed_group(row_data)
+                    gv.unmark_possible_merger(row_data)
+                    gv.unmark_possible_pair(row_data)
+            elif label == 'G':
+                if gv.is_confirmed_group(row_data): gv.unmark_confirmed_group(row_data)
+                else:
+                    gv.mark_confirmed_group(row_data, _raw[0])
+                    gv.unmark_false_positive(row_data)
+                    gv.unmark_possible_merger(row_data)
+                    gv.unmark_possible_pair(row_data)
+            elif label == 'M':
+                if gv.is_possible_merger(row_data): gv.unmark_possible_merger(row_data)
+                else:
+                    gv.mark_possible_merger(row_data, _raw[0])
+                    gv.unmark_false_positive(row_data)
+                    gv.unmark_confirmed_group(row_data)
+                    gv.unmark_possible_pair(row_data)
+            elif label == 'PP':
+                if gv.is_possible_pair(row_data): gv.unmark_possible_pair(row_data)
+                else:
+                    gv.mark_possible_pair(row_data, _raw[0])
+                    gv.unmark_false_positive(row_data)
+                    gv.unmark_confirmed_group(row_data)
+                    gv.unmark_possible_merger(row_data)
+            gv.save_progress()
+            supa_id = gid + GroupValidator.SUPABASE_OFFSET
+            if   gv.is_false_positive(row_data):  _supabase_upsert(supa_id, 'FP')
+            elif gv.is_confirmed_group(row_data):  _supabase_upsert(supa_id, 'GROUP')
+            elif gv.is_possible_merger(row_data):  _supabase_upsert(supa_id, 'PM')
+            elif gv.is_possible_pair(row_data):    _supabase_upsert(supa_id, 'PP')
+            _refresh_state()
+            self._update_status_bar()
+
+        bf = tk.Frame(win, bg='#111111')
+        bf.pack(pady=8)
+        bfont = ('Arial', 12, 'bold')
+        btn_f = tk.Button(bf, text='[F] False pos.', font=bfont,
+                          bg=BTN_GRAY, fg='white', activebackground='#606060',
+                          activeforeground='white', relief='flat',
+                          highlightthickness=0, highlightbackground=BTN_GRAY,
+                          cursor='hand2', padx=10, pady=5,
+                          command=lambda: _classify('F'))
+        btn_f.pack(side='left', padx=6)
+        btn_g = tk.Button(bf, text='[G] Group', font=bfont,
+                          bg=BTN_GRAY, fg='white', activebackground='#606060',
+                          activeforeground='white', relief='flat',
+                          highlightthickness=0, highlightbackground=BTN_GRAY,
+                          cursor='hand2', padx=10, pady=5,
+                          command=lambda: _classify('G'))
+        btn_g.pack(side='left', padx=6)
+        btn_m = tk.Button(bf, text='[M] Merger', font=bfont,
+                          bg=BTN_GRAY, fg='white', activebackground='#606060',
+                          activeforeground='white', relief='flat',
+                          highlightthickness=0, highlightbackground=BTN_GRAY,
+                          cursor='hand2', padx=10, pady=5,
+                          command=lambda: _classify('M'))
+        btn_m.pack(side='left', padx=6)
+        btn_pp = tk.Button(bf, text='[PP] Poss. Pair', font=bfont,
+                           bg=BTN_GRAY, fg='white', activebackground='#606060',
+                           activeforeground='white', relief='flat',
+                           highlightthickness=0, highlightbackground=BTN_GRAY,
+                           cursor='hand2', padx=10, pady=5,
+                           command=lambda: _classify('PP'))
+        btn_pp.pack(side='left', padx=6)
+
+        win.bind('<f>', lambda e: _classify('F'));  win.bind('<F>', lambda e: _classify('F'))
+        win.bind('<g>', lambda e: _classify('G'));  win.bind('<G>', lambda e: _classify('G'))
+        win.bind('<m>', lambda e: _classify('M'));  win.bind('<M>', lambda e: _classify('M'))
+        win.bind('<p>', lambda e: _classify('PP')); win.bind('<P>', lambda e: _classify('PP'))
+
+        sep = float(row_data.get('max_sep_arcsec', 10.0))
+
+        def _open_sky(event=None):
+            webbrowser.open(_skyviewer_url(ra_c, dec_c, sep))
+
+        canvas.bind('<Double-Button-1>', _open_sky)
+
+        bot_frame = tk.Frame(win, bg='#111111')
+        bot_frame.pack(pady=(0, 10))
+        tk.Label(bot_frame, text='doble clic → Sky Viewer  |  F / G / M',
+                 bg='#111111', fg='#444444',
+                 font=('Arial', 9, 'italic')).pack(side='left', padx=(0, 10))
+
+        btn_reload = tk.Button(bot_frame, text='⟳ Reload',
+                               font=('Arial', 10), bg='#2a2a2a', fg='#aaaaaa',
+                               activebackground='#404040', relief='flat',
+                               cursor='hand2', padx=8, pady=3)
+        btn_reload.pack(side='left')
+
+        _refresh_state()
+
+        def _do():
+            raw = _fetch_group_one(ra_c, dec_c, sep)
+            win.after(0, lambda: _on_done(raw))
+
+        def _on_done(raw):
+            if not win.winfo_exists():
+                return
+            _raw[0] = raw
+            if raw is not None:
+                ann  = annotate_image_group(raw, row_data)
+                disp = ann.resize((DETAIL_PX, DETAIL_PX), Image.LANCZOS)
+                btn_reload.config(fg='#aaaaaa', state='normal')
+            else:
+                key  = (round(ra_c, 5), round(dec_c, 5))
+                err  = _fetch_errors.get(key, 'Error de descarga')
+                disp = make_error_tile(err).resize((DETAIL_PX, DETAIL_PX), Image.LANCZOS)
+                btn_reload.config(fg='#ffaa44', state='normal')
+            _tk_ref[0] = ImageTk.PhotoImage(disp)
+            canvas.delete('all')
+            canvas.create_image(0, 0, anchor='nw', image=_tk_ref[0])
+            canvas.update_idletasks()
+
+        def _reload():
+            btn_reload.config(text='⏳ …', state='disabled')
+            threading.Thread(target=_do, daemon=True).start()
+
+        btn_reload.config(command=_reload)
+        threading.Thread(target=_do, daemon=True).start()
 
     def _open_detail_window(self, row_data: dict):
         """Ventana emergente con imagen ampliada, clasificación y acceso al Sky Viewer."""
@@ -1586,19 +2590,21 @@ class PairInspectorApp:
         canvas.bind('<Button-2>', _ctx)
         canvas.bind('<Button-3>', _ctx)
 
-        tk.Label(win, text='doble clic → Sky Viewer  |  clic derecho → menú  |  F / P / M',
+        bot_frame = tk.Frame(win, bg='#111111')
+        bot_frame.pack(pady=(0, 10))
+        tk.Label(bot_frame, text='doble clic → Sky Viewer  |  clic derecho → menú  |  F / P / M',
                  bg='#111111', fg='#444444',
-                 font=('Arial', 9, 'italic')).pack(pady=(0, 10))
+                 font=('Arial', 9, 'italic')).pack(side='left', padx=(0, 10))
+
+        btn_reload = tk.Button(bot_frame, text='⟳ Reload',
+                               font=('Arial', 10), bg='#2a2a2a', fg='#aaaaaa',
+                               activebackground='#404040', relief='flat',
+                               cursor='hand2', padx=8, pady=3)
+        btn_reload.pack(side='left')
 
         _refresh_state()
 
         # ── Descarga en background ────────────────────────────────────────────
-        btn_reload = tk.Button(win, text='🔄  Retry download',
-                               font=('Arial', 10), bg='#3a2000', fg='#ffaa44',
-                               activebackground='#704000', relief='flat',
-                               cursor='hand2', padx=8, pady=3)
-        # Se muestra solo cuando la imagen falla
-
         def _do():
             raw = _fetch_one(row_data['ra1'], row_data['dec1'],
                              row_data['ra2'], row_data['dec2'],
@@ -1612,20 +2618,19 @@ class PairInspectorApp:
             if raw is not None:
                 ann  = annotate_image(raw, row_data, self.v.rp_col)
                 disp = ann.resize((DETAIL_PX, DETAIL_PX), Image.LANCZOS)
-                btn_reload.pack_forget()          # imagen ok → ocultar botón
+                btn_reload.config(fg='#aaaaaa', state='normal')
             else:
                 key  = (round(ra_mid, 5), round(dec_mid, 5))
                 err  = _fetch_errors.get(key, 'Error de descarga')
                 disp = make_error_tile(err).resize((DETAIL_PX, DETAIL_PX), Image.LANCZOS)
-                btn_reload.config(text='🔄  Retry download', state='normal')
-                btn_reload.pack(pady=(0, 8))      # imagen fallida → mostrar botón
+                btn_reload.config(fg='#ffaa44', state='normal')
             _tk_ref[0] = ImageTk.PhotoImage(disp)
             canvas.delete('all')
             canvas.create_image(0, 0, anchor='nw', image=_tk_ref[0])
             canvas.update_idletasks()
 
         def _reload():
-            btn_reload.config(text='⏳  Descargando…', state='disabled')
+            btn_reload.config(text='⏳ …', state='disabled')
             threading.Thread(target=_do, daemon=True).start()
 
         btn_reload.config(command=_reload)
@@ -1737,11 +2742,32 @@ def main():
         root.destroy()
         return
 
-    print(f'Catálogo: {len(validator.df):,} pares  |  '
+    print(f'Catálogo pares: {len(validator.df):,}  |  '
           f'Revisados: {validator.current_index:,}  |  '
           f'FP: {len(validator.false_positives)}  |  '
           f'Mergers: {len(validator.possible_mergers)}  |  '
-          f'Pares confirmados: {len(validator.confirmed_pairs)}')
+          f'Pares: {len(validator.confirmed_pairs)}')
+
+    # ── Cargar validador de grupos (opcional) ─────────────────────────────────
+    group_validator = None
+    if GROUPS_CATALOG_PATH and Path(GROUPS_CATALOG_PATH).exists():
+        try:
+            group_validator = GroupValidator(
+                catalog_path     = GROUPS_CATALOG_PATH,
+                progress_file    = PROGRESS_FILE_GROUPS,
+                group_img_dir    = GROUP_IMG_DIR,
+                group_fp_img_dir = GROUP_FP_IMG_DIR,
+                group_pm_img_dir = GROUP_PM_IMG_DIR,
+            )
+            print(f'Catálogo grupos: {len(group_validator.df):,}  |  '
+                  f'Revisados: {group_validator.current_index:,}  |  '
+                  f'FP: {len(group_validator.false_positives)}  |  '
+                  f'Grupos: {len(group_validator.confirmed_groups)}')
+        except Exception as exc:
+            print(f'Aviso: no se pudo cargar el catálogo de grupos: {exc}')
+    else:
+        print('Aviso: catálogo de grupos no encontrado — modo grupos deshabilitado')
+        print(f'  (buscado en: {GROUPS_CATALOG_PATH})')
 
     # Crear y lanzar ventana
     root = tk.Tk()
@@ -1771,7 +2797,7 @@ def main():
         except tk.TclError:
             root.geometry(f'{root.winfo_screenwidth()}x{root.winfo_screenheight()}+0+0')
 
-    app = PairInspectorApp(root, validator)
+    app = PairInspectorApp(root, validator, group_validator=group_validator)
 
     # Pulso de redibujado cada 300 ms — garantía extra contra el bug de macOS
     def _redraw_pulse():
@@ -1785,6 +2811,8 @@ def main():
     # Guardar al cerrar
     def _on_close():
         validator.save_progress()
+        if group_validator is not None:
+            group_validator.save_progress()
         root.destroy()
 
     root.protocol('WM_DELETE_WINDOW', _on_close)

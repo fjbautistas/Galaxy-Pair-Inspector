@@ -1,10 +1,8 @@
 # Galaxy Pair Inspector
-
 Visual classification tool for galaxy pairs from the DESI Legacy Survey.
-The goal is to build a labeled dataset to train a morphological classifier.
+The goal is to build a labeled dataset to train a galaxy pair classifier.
 
 **Author:** Frank Bautista
-
 ---
 
 ## What it does
@@ -113,6 +111,7 @@ If the device is already registered, the command prints its existing assignment 
 ### `pipeline/register_device.py`
 
 Registers a device in Supabase and assigns its work block. Reads catalog length from `PAIRS_CATALOG` in `.env`.
+(La app de escritorio no tiene lógica de auto-registro; si no encuentra partición en Supabase, fallará)
 
 ```bash
 python pipeline/register_device.py --device IPHONE_FRANK
@@ -135,6 +134,43 @@ python pipeline/generate_and_upload_images.py
 ```
 
 Requires `google_credentials.json` (service account) in the project root.
+
+### `pipeline/generate_labels.py`
+
+Downloads all classifications from Supabase, applies majority vote per pair/group, and writes:
+
+- `outputs/catalogs/labels.csv` — work pairs
+- `outputs/catalogs/labels_calib.csv` — calibration pairs (id\_par < 150)
+- `outputs/catalogs/labels_groups.csv` — groups (if any classified)
+
+```bash
+python pipeline/generate_labels.py
+```
+
+### `pipeline/build_groups_catalog.py`
+
+Reconstructs unique FoF components from the edge list in `data/DESI_v3_groups.parquet` using BFS and writes `data/DESI_v3_groups_unique.parquet` (one row per group).
+
+```bash
+python pipeline/build_groups_catalog.py
+```
+
+### `pipeline/migrate_to_v3.py`
+
+One-time migration: translates existing classifications from the old catalog (`DESI_int_legacyID_pairs`) to v3 by crossmatching on `(id1, id2)`. Outputs `labels_migrados_v3.csv` and `labels_obsoletos.csv` without modifying the originals.
+
+```bash
+python pipeline/migrate_to_v3.py
+```
+
+### `pipeline/plot_dz_vs_rp.py` / `pipeline/plot_dz_vs_sep.py`
+
+Diagnostic scatter plots. Cross the pair catalog with Supabase classifications and produce 2D KDE plots of Δz vs rp\_kpc (or vs sep\_arcsec). Saved to `outputs/plots/`.
+
+```bash
+python pipeline/plot_dz_vs_rp.py
+python pipeline/plot_dz_vs_sep.py
+```
 
 ---
 
