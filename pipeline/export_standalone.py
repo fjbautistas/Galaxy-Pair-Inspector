@@ -46,6 +46,7 @@ SUPABASE_ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
 # ── Configuración ──────────────────────────────────────────────────────────────
 CATALOG_PATH        = _env.get('PAIRS_CATALOG', '')
 GROUPS_CATALOG_PATH = _env.get('GROUPS_CATALOG', '')
+GROUP_Z_MIN   = 0.01   # excluir grupos con z_center ≤ este valor (artifact FoF local)
 PROGRESS_FILE = 'outputs/catalogs/progress.json'
 TEMPLATE_HTML = 'mobile/index.html'
 OUTPUT_HTML   = 'mobile/GalPairs.html'
@@ -152,6 +153,10 @@ def _build_groups_catalog() -> list:
         dec_c  = float(members['dec'].mean())
         z_c    = float(members['z'].mean())
 
+        # Excluir grupos en el volumen local (artifact FoF a z≈0)
+        if z_c <= GROUP_Z_MIN:
+            continue
+
         # Ordenar miembros por distancia al centroide → los más cercanos primero
         members = members.copy()
         members['_dist'] = np.hypot(members['ra'] - ra_c, members['dec'] - dec_c)
@@ -172,7 +177,7 @@ def _build_groups_catalog() -> list:
             'member_dec':     [round(float(v), 5) for v in top['dec']],
         })
 
-    print(f'  {len(groups):,} grupos únicos listos')
+    print(f'  {len(groups):,} grupos únicos listos  (filtro z_center > {GROUP_Z_MIN})')
     return groups
 
 
