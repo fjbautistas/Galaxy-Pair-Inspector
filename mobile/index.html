@@ -475,13 +475,15 @@
             <!-- separation arrow -->
             <line x1="82" y1="120" x2="122" y2="120" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>
             <text x="102" y="133" text-anchor="middle" font-size="9" fill="#777" font-family="monospace">~8 kpc</text>
-            <!-- labels -->
-            <text x="72" y="82" font-size="11" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="124" y="82" font-size="11" fill="#90b4f0" font-family="monospace" font-weight="bold">G2</text>
+            <!-- leader lines + labels -->
+            <line x1="82" y1="91" x2="72" y2="76" stroke="#f4c97a" stroke-width="1" opacity=".8"/>
+            <line x1="122" y1="89" x2="132" y2="74" stroke="#90b4f0" stroke-width="1" opacity=".8"/>
+            <text x="68" y="74" text-anchor="middle" font-size="11" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
+            <text x="136" y="72" text-anchor="start" font-size="11" fill="#90b4f0" font-family="monospace" font-weight="bold">G2</text>
           </svg>
         </div>
         <div class="tut-label" style="color:#43a047">✅ Confirmed Pair</div>
-        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. Mark as <strong style="color:#a5d6a7">Pair</strong>.</div>
+        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. Mark as <strong style="color:#a5d6a7">Pair</strong>.<br><br><span style="color:#aaa;font-size:12px">⚠️ If both markers point to the same object (deblending artifact), it's actually a <strong style="color:#ef9a9a">False Positive</strong>.</span></div>
       </div>
 
       <!-- Slide 2: FP -->
@@ -503,13 +505,18 @@
             <text x="71" y="139" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace">z=0.05</text>
             <rect x="108" y="110" width="42" height="14" rx="3" fill="#1a1a1a" opacity=".8"/>
             <text x="129" y="121" text-anchor="middle" font-size="9" fill="#aaa" font-family="monospace">z=0.31</text>
+            <!-- leader lines + labels -->
+            <line x1="80" y1="98" x2="65" y2="82" stroke="#e8b86d" stroke-width="1" opacity=".8"/>
+            <line x1="128" y1="90" x2="138" y2="76" stroke="#aaa" stroke-width="1" opacity=".8"/>
+            <text x="60" y="80" text-anchor="middle" font-size="11" fill="#e8b86d" font-family="monospace" font-weight="bold">G1</text>
+            <text x="142" y="74" text-anchor="start"  font-size="11" fill="#aaa"    font-family="monospace" font-weight="bold">G2</text>
             <!-- X mark between -->
             <line x1="100" y1="94" x2="110" y2="104" stroke="#e53935" stroke-width="2.5" stroke-linecap="round"/>
             <line x1="110" y1="94" x2="100" y2="104" stroke="#e53935" stroke-width="2.5" stroke-linecap="round"/>
           </svg>
         </div>
         <div class="tut-label" style="color:#e53935">❌ False Positive</div>
-        <div class="tut-desc">Two galaxies that appear close on the sky but are at very different redshifts — a projection effect, not a real pair. Mark as <strong style="color:#ef9a9a">FP</strong>.</div>
+        <div class="tut-desc">Two galaxies that appear close on the sky but are at very different redshifts — a projection effect, not a real pair. Mark as <strong style="color:#ef9a9a">FP</strong>.<br><br><span style="color:#aaa;font-size:12px">⚠️ Also applies when G1 and G2 point to the <em>same</em> galaxy — a deblending error in the catalog.</span></div>
       </div>
 
       <!-- Slide 3: PM -->
@@ -532,7 +539,12 @@
             <!-- tidal tails -->
             <path d="M72 90 Q50 70 45 55" stroke="#f4a020" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
             <path d="M118 116 Q140 135 148 148" stroke="#e07030" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
-            <text x="100" y="145" text-anchor="middle" font-size="9" fill="#fb8c00" font-family="monospace" opacity=".8">tidal tails</text>
+            <text x="100" y="152" text-anchor="middle" font-size="9" fill="#fb8c00" font-family="monospace" opacity=".8">tidal tails</text>
+            <!-- leader lines + labels -->
+            <line x1="84" y1="90" x2="74" y2="73" stroke="#f4a020" stroke-width="1" opacity=".8"/>
+            <line x1="110" y1="102" x2="124" y2="90" stroke="#e07030" stroke-width="1" opacity=".8"/>
+            <text x="70" y="71" text-anchor="middle" font-size="11" fill="#f4a020" font-family="monospace" font-weight="bold">G1</text>
+            <text x="127" y="88" text-anchor="start"  font-size="11" fill="#e07030" font-family="monospace" font-weight="bold">G2</text>
           </svg>
         </div>
         <div class="tut-label" style="color:#fb8c00">🔀 Possible Merger</div>
@@ -597,7 +609,7 @@
           </svg>
         </div>
         <div class="tut-label" style="color:#4dccaa">👥 Possible Pair</div>
-        <div class="tut-desc">You're looking at a group, but two members stand out as a close interacting pair within it. The group context is real, but the pair deserves special attention. Mark as <strong style="color:#4dccaa">PP</strong>.</div>
+        <div class="tut-desc">You're looking at a group, but visually only two galaxies are interacting. Multiple markers may fall on just those two objects — the catalog sees a group, but the image shows a pair. Mark as <strong style="color:#4dccaa">PP</strong>.</div>
       </div>
 
       <!-- Slide 6: Tips -->
