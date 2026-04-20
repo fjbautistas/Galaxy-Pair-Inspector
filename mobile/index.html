@@ -1580,7 +1580,25 @@
       'Content-Type':  'application/json',
     };
 
-    // 1. ¿Ya existe partición para este dispositivo?
+    // Llamar a la función RPC atómica en Supabase (evita race condition)
+    try {
+      const r = await fetch(`${url}/rest/v1/rpc/assign_partition`, {
+        method:  'POST',
+        headers,
+        body: JSON.stringify({
+          p_device_id:  devId,
+          p_calib_seed: Math.floor(Math.random() * 1_000_000),
+          p_block_size: BLOCK_SIZE,
+          p_calib_size: CALIB_SIZE,
+        }),
+      });
+      if (r.ok) {
+        const row = await r.json();
+        if (row && row.device_id) return row;
+      }
+    } catch (_) {}
+
+    // Fallback: lógica directa si la función RPC no existe todavía
     try {
       const r = await fetch(
         `${url}/rest/v1/partitions?device_id=eq.${devId}&select=*&limit=1`,
@@ -1590,7 +1608,6 @@
       if (Array.isArray(rows) && rows.length > 0) return rows[0];
     } catch (_) { return null; }
 
-    // 2. Buscar el work_end máximo actual para asignar el siguiente bloque
     let maxEnd = CALIB_SIZE;
     try {
       const r = await fetch(
@@ -1601,7 +1618,6 @@
       if (Array.isArray(rows) && rows.length > 0) maxEnd = rows[0].work_end;
     } catch (_) {}
 
-    // 3. Insertar nueva partición
     const partition = {
       device_id:  devId,
       calib_seed: Math.floor(Math.random() * 1_000_000),
@@ -1618,7 +1634,6 @@
       if (Array.isArray(rows) && rows.length > 0) return rows[0];
     } catch (_) {}
 
-    // 4. Fallback: usar la partición generada localmente sin confirmar
     return partition;
   }
 
@@ -1675,6 +1690,15 @@
 
       if (!catalog.length) { showNoCatalog(); return; }
       if (currentIndex >= catalog.length) currentIndex = 0;
+
+      // Si el ítem actual ya fue clasificado (ej. después de reset de partición),
+      // saltar al próximo sin clasificar para no confundir al usuario
+      const _initDone = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
+      if (_initDone.has(itemKey(catalog[currentIndex]))) {
+        // Buscar próximo sin clasificar desde el inicio
+        const _next = catalog.findIndex(item => !_initDone.has(itemKey(item)));
+        if (_next !== -1) currentIndex = _next;
+      }
       showItem(currentIndex);
 
       // Mostrar tutorial la primera vez

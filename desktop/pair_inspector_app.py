@@ -111,7 +111,7 @@ GROUP_FP_IMG_DIR      = 'outputs/group_fp_images'
 GROUP_PM_IMG_DIR      = 'outputs/group_pm_images'
 GROUP_PP_IMG_DIR      = 'outputs/group_pp_images'
 
-RP_MAX_KPC = 12.0
+RP_MAX_KPC = 20.0
 
 GRID_COLS = 4
 GRID_ROWS = 2
@@ -1056,25 +1056,27 @@ class PairCell:
             relief='flat', justify='center', cursor='xterm', width=46)
         self.coord_label.pack(pady=(4, 0))
 
-        # Botones de clasificación
+        # Botones de clasificación — grid 2×2
         btn_frame = tk.Frame(self.frame, bg=BG_DEFAULT)
         btn_frame.pack(pady=5)
+        btn_frame.columnconfigure(0, weight=1)
+        btn_frame.columnconfigure(1, weight=1)
 
-        bfont = ('Arial', 11, 'bold')
         self.btn_f = ttk.Button(btn_frame, text='[F] False pos.',
                                 style='Cell.TButton', cursor='hand2',
                                 command=lambda: self.on_classify(self.index, 'F'))
-        self.btn_f.pack(side='left', padx=4)
+        self.btn_f.grid(row=0, column=0, padx=4, pady=2, sticky='ew')
 
         self.btn_p = ttk.Button(btn_frame, text='[P] Pair',
                                 style='Cell.TButton', cursor='hand2',
                                 command=lambda: self.on_classify(self.index, 'P'))
-        self.btn_p.pack(side='left', padx=4)
+        self.btn_p.grid(row=0, column=1, padx=4, pady=2, sticky='ew')
 
         self.btn_m = ttk.Button(btn_frame, text='[M] Merger',
                                 style='Cell.TButton', cursor='hand2',
                                 command=lambda: self.on_classify(self.index, 'M'))
-        self.btn_m.pack(side='left', padx=4)
+        # En modo par ocupa las 2 columnas; en modo grupo solo la col 0
+        self.btn_m.grid(row=1, column=0, columnspan=2, padx=4, pady=2, sticky='ew')
 
         self.btn_pp = ttk.Button(btn_frame, text='[PP] Poss. Pair',
                                  style='Cell.TButton', cursor='hand2',
@@ -1186,8 +1188,8 @@ class PairCell:
                 style='CellActive.TButton' if is_grp else 'Cell.TButton',
                 text='[G] Group ✓'         if is_grp else '[G] Group')
             self.btn_pp.configure(
-                style='CellActive.TButton' if is_pp  else 'Cell.TButton',
-                text='[PP] Poss. Pair ✓'   if is_pp  else '[PP] Poss. Pair')
+                style='CellActivePP.TButton' if is_pp else 'Cell.TButton',
+                text='[PP] Poss. Pair ✓'     if is_pp else '[PP] Poss. Pair')
         else:
             is_par = validator.is_confirmed_pair(self.row_data)
             self.btn_p.configure(
@@ -1224,17 +1226,21 @@ class PairCell:
             self.frame.config(highlightbackground='#444')
 
     def set_group_mode(self, group_mode: bool):
-        """Cambia el botón [P]/[G] y el menú contextual según el modo activo."""
+        """Cambia el botón [P]/[G] y reorganiza grid según el modo activo."""
         if group_mode:
             self.btn_p.configure(
                 text='[G] Group',
                 command=lambda: self.on_classify(self.index, 'G'))
-            self.btn_pp.pack(side='left', padx=4)
+            # btn_m ocupa solo col 0; btn_pp aparece en col 1
+            self.btn_m.grid(row=1, column=0, columnspan=1, padx=4, pady=2, sticky='ew')
+            self.btn_pp.grid(row=1, column=1, padx=4, pady=2, sticky='ew')
         else:
             self.btn_p.configure(
                 text='[P] Pair',
                 command=lambda: self.on_classify(self.index, 'P'))
-            self.btn_pp.pack_forget()
+            # btn_m vuelve a ocupar las 2 columnas; btn_pp desaparece
+            self.btn_m.grid(row=1, column=0, columnspan=2, padx=4, pady=2, sticky='ew')
+            self.btn_pp.grid_remove()
 
     def set_selected(self, selected: bool):
         self.selected = selected
@@ -1325,6 +1331,14 @@ class PairInspectorApp:
                       padding=(8, 4), relief='groove')
         _s.map('CellActive.TButton',
                background=[('active', '#707070'), ('pressed', '#505050')],
+               foreground=[('active', 'white'),   ('pressed', 'white')])
+        _s.configure('CellActivePP.TButton',
+                      background='#1a7060', foreground='white',
+                      font=('Arial', 11, 'bold'),
+                      borderwidth=1, focusthickness=0, focuscolor='none',
+                      padding=(8, 4), relief='groove')
+        _s.map('CellActivePP.TButton',
+               background=[('active', '#2a9080'), ('pressed', '#145040')],
                foreground=[('active', 'white'),   ('pressed', 'white')])
         _s.configure('Retry.TButton',
                       background='#3a2000', foreground='#ffaa44',
@@ -2303,6 +2317,8 @@ class PairInspectorApp:
             btn_m.config(relief='groove' if is_pm  else 'flat',
                          text='[M] Merger ✓'     if is_pm  else '[M] Merger')
             btn_pp.config(relief='groove' if is_pp else 'flat',
+                          bg='#1a7060' if is_pp else BTN_GRAY,
+                          activebackground='#2a9080' if is_pp else '#606060',
                           text='[PP] Poss. Pair ✓' if is_pp else '[PP] Poss. Pair')
             if is_fp:    lbl_class.config(text='● Falso positivo',    fg='#ff6666')
             elif is_grp: lbl_class.config(text='● Grupo confirmado',  fg='#6699ff')
@@ -2352,6 +2368,8 @@ class PairInspectorApp:
 
         bf = tk.Frame(win, bg='#111111')
         bf.pack(pady=8)
+        bf.columnconfigure(0, weight=1)
+        bf.columnconfigure(1, weight=1)
         bfont = ('Arial', 12, 'bold')
         btn_f = tk.Button(bf, text='[F] False pos.', font=bfont,
                           bg=BTN_GRAY, fg='white', activebackground='#606060',
@@ -2359,28 +2377,28 @@ class PairInspectorApp:
                           highlightthickness=0, highlightbackground=BTN_GRAY,
                           cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('F'))
-        btn_f.pack(side='left', padx=6)
+        btn_f.grid(row=0, column=0, padx=6, pady=3, sticky='ew')
         btn_g = tk.Button(bf, text='[G] Group', font=bfont,
                           bg=BTN_GRAY, fg='white', activebackground='#606060',
                           activeforeground='white', relief='flat',
                           highlightthickness=0, highlightbackground=BTN_GRAY,
                           cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('G'))
-        btn_g.pack(side='left', padx=6)
+        btn_g.grid(row=0, column=1, padx=6, pady=3, sticky='ew')
         btn_m = tk.Button(bf, text='[M] Merger', font=bfont,
                           bg=BTN_GRAY, fg='white', activebackground='#606060',
                           activeforeground='white', relief='flat',
                           highlightthickness=0, highlightbackground=BTN_GRAY,
                           cursor='hand2', padx=10, pady=5,
                           command=lambda: _classify('M'))
-        btn_m.pack(side='left', padx=6)
+        btn_m.grid(row=1, column=0, padx=6, pady=3, sticky='ew')
         btn_pp = tk.Button(bf, text='[PP] Poss. Pair', font=bfont,
                            bg=BTN_GRAY, fg='white', activebackground='#606060',
                            activeforeground='white', relief='flat',
                            highlightthickness=0, highlightbackground=BTN_GRAY,
                            cursor='hand2', padx=10, pady=5,
                            command=lambda: _classify('PP'))
-        btn_pp.pack(side='left', padx=6)
+        btn_pp.grid(row=1, column=1, padx=6, pady=3, sticky='ew')
 
         win.bind('<f>', lambda e: _classify('F'));  win.bind('<F>', lambda e: _classify('F'))
         win.bind('<g>', lambda e: _classify('G'));  win.bind('<G>', lambda e: _classify('G'))
