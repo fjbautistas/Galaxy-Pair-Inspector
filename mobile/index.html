@@ -1105,8 +1105,6 @@
   // ═══════════════════════════════════════════════════════════════════════
   // SHOW ITEM — handles both pairs and groups
   // ═══════════════════════════════════════════════════════════════════════
-  function showPair(idx) { showItem(idx); }   // alias legacy
-
   function showItem(idx) {
     if (!catalog.length || idx < 0 || idx >= catalog.length) return;
     currentIndex = idx;
@@ -1185,14 +1183,26 @@
     _prefetch(idx);
   }
 
-  const _prefetchCache = {};
+  // LRU prefetch cache — máximo 20 entradas para no saturar memoria
+  const _prefetchCache = new Set();
+  const MAX_PREFETCH_CACHE = 20;
+
   function _prefetch(currentIdx) {
-    for (let d = 1; d <= 3; d++) {
+    // Ventana adaptativa: 6 en 4G/WiFi, 3 en conexión lenta o desconocida
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const fast = conn ? ['4g', 'wifi'].includes(conn.effectiveType) : false;
+    const window_ = fast ? 6 : 3;
+
+    for (let d = 1; d <= window_; d++) {
       const ni = currentIdx + d;
       if (ni >= catalog.length) break;
       const url = legacyUrl(catalog[ni]);
-      if (_prefetchCache[url]) continue;
-      _prefetchCache[url] = true;
+      if (_prefetchCache.has(url)) continue;
+      // Evitar que el cache crezca sin límite
+      if (_prefetchCache.size >= MAX_PREFETCH_CACHE) {
+        _prefetchCache.delete(_prefetchCache.values().next().value);
+      }
+      _prefetchCache.add(url);
       const pre = new Image();
       pre.src = url;
     }
@@ -1327,7 +1337,7 @@
 
     document.getElementById('progFill').style.width = `${(_countDone() / catalog.length * 100).toFixed(2)}%`;
 
-    saveState();
+    saveState(true);  // inmediato al clasificar — no perder el voto si cierran la app
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1422,13 +1432,29 @@
   // ═══════════════════════════════════════════════════════════════════════
   // PERSISTENCE (localStorage)
   // ═══════════════════════════════════════════════════════════════════════
-  function saveState() {
+  let _saveTimer = null;
+
+  function saveState(immediate = false) {
+    if (immediate) {
+      _doSave();
+    } else {
+      // Debounce: agrupa escrituras en una sola cada 2s
+      if (_saveTimer) clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(_doSave, 2000);
+    }
+  }
+
+  function _doSave() {
+    _saveTimer = null;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         currentIndex, classifications, savedAt: new Date().toISOString()
       }));
     } catch(e) {}
   }
+
+  // Flush pendiente al cerrar/recargar la página
+  window.addEventListener('beforeunload', () => saveState(true));
 
   function loadState() {
     try {
