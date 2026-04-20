@@ -840,6 +840,8 @@
   let desktopCl        = {};   // id_par(str) → classification  (from desktop, pairs only)
   let currentIndex     = 0;
   let autoAdvanceTimer = null;
+  let _imgTimer        = null;   // global — un solo timer de timeout de imagen activo
+  let _countdownTimer  = null;   // global — interval del countdown visible
   let deviceId         = '';
   const _cloudTimers   = {};
 
@@ -1126,21 +1128,48 @@
     document.getElementById('markerCanvas').getContext('2d')
       .clearRect(0, 0, img.naturalWidth, img.naturalHeight);
 
-    // Auto-skip si la imagen tarda demasiado
-    let _imgTimer = setTimeout(() => {
-      img.src = '';   // cancelar descarga
-      skipToUnclassified(true);   // saltar al próximo no clasificado (silencioso)
+    // Cancelar timers anteriores antes de crear nuevos
+    if (_imgTimer)       { clearTimeout(_imgTimer);   _imgTimer = null; }
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+
+    // Countdown visible — aparece a los 3s, cuenta regresiva hasta 0 y salta
+    const WARN_AFTER_MS = 3000;
+    const countdownSecs = Math.round((IMG_TIMEOUT_MS - WARN_AFTER_MS) / 1000);
+    let _remaining = countdownSecs;
+
+    const _warnTimer = setTimeout(() => {
+      overlay.innerHTML = `<div class="spinner"></div>
+        <div style="color:#ffaa44;font-size:13px;margin-top:8px">
+          Slow image… skipping in <span id="cdCount">${_remaining}</span>s
+          <br><button class="retry-btn" style="margin-top:6px" onclick="retryImage()">↻ Keep waiting</button>
+        </div>`;
+      _countdownTimer = setInterval(() => {
+        _remaining--;
+        const el = document.getElementById('cdCount');
+        if (el) el.textContent = _remaining;
+      }, 1000);
+    }, WARN_AFTER_MS);
+
+    _imgTimer = setTimeout(() => {
+      clearTimeout(_warnTimer);
+      clearInterval(_countdownTimer); _countdownTimer = null;
+      img.src = '';
+      skipToUnclassified(true);
     }, IMG_TIMEOUT_MS);
 
     img.onload = () => {
-      clearTimeout(_imgTimer);
+      clearTimeout(_warnTimer);
+      clearTimeout(_imgTimer);       _imgTimer = null;
+      clearInterval(_countdownTimer); _countdownTimer = null;
       overlay.style.display = 'none';
       img.style.opacity = '1';
       drawMarkers(item);
       _applyBorder(cl, item);
     };
     img.onerror = () => {
-      clearTimeout(_imgTimer);
+      clearTimeout(_warnTimer);
+      clearTimeout(_imgTimer);       _imgTimer = null;
+      clearInterval(_countdownTimer); _countdownTimer = null;
       overlay.style.display = 'flex';
       overlay.innerHTML = `
         <div class="err-state">
@@ -1342,10 +1371,11 @@
   }
 
   function retryImage() {
-    const overlay = document.getElementById('spinnerOverlay');
-    overlay.style.display = 'flex';
-    overlay.innerHTML = '<div class="spinner"></div>';
-    document.getElementById('galaxyImg').src = legacyUrl(catalog[currentIndex], true);
+    // Cancelar timers pendientes antes de reintentar
+    if (_imgTimer)       { clearTimeout(_imgTimer);    _imgTimer = null; }
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    // Re-mostrar el ítem completo (reinicia timers correctamente)
+    showItem(currentIndex);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
