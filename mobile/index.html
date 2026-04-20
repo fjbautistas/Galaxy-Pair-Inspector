@@ -1588,10 +1588,11 @@
   // ═══════════════════════════════════════════════════════════════════════
   // PARTITION — auto-registro y asignación de bloque desde Supabase
   // ═══════════════════════════════════════════════════════════════════════
-  const CALIB_PAIRS  = 120;   // pares de calibración (iguales para todos)
-  const CALIB_GROUPS = 80;    // grupos de calibración (iguales para todos)
-  const CALIB_SIZE   = CALIB_PAIRS;   // alias para compatibilidad con getOrCreatePartition
-  const BLOCK_SIZE   = 3000;
+  const CALIB_PAIRS        = 120;   // pares de calibración (iguales para todos)
+  const CALIB_GROUPS       = 80;    // grupos de calibración (iguales para todos)
+  const CALIB_SIZE         = CALIB_PAIRS;
+  const BLOCK_SIZE         = 3000;
+  const GROUP_BLOCK_SIZE   = 500;
 
   async function getOrCreatePartition(devId) {
     const url  = window._SUPABASE_URL;
@@ -1610,10 +1611,12 @@
         method:  'POST',
         headers,
         body: JSON.stringify({
-          p_device_id:  devId,
-          p_calib_seed: Math.floor(Math.random() * 1_000_000),
-          p_block_size: BLOCK_SIZE,
-          p_calib_size: CALIB_SIZE,
+          p_device_id:        devId,
+          p_calib_seed:       Math.floor(Math.random() * 1_000_000),
+          p_block_size:       BLOCK_SIZE,
+          p_calib_size:       CALIB_SIZE,
+          p_group_block_size: GROUP_BLOCK_SIZE,
+          p_group_calib_size: CALIB_GROUPS,
         }),
       });
       if (r.ok) {
@@ -1701,8 +1704,10 @@
         baseGroups.slice(0, CALIB_GROUPS).map(g => ({...g, _calibGroup: true})),
         seed ^ 0xCAFE
       );
-      // Trabajo: resto de grupos, shuffleados por dispositivo
-      const workGroups  = seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
+      // Trabajo: bloque exclusivo por partición (group_work_start/end)
+      const workGroups = partition && partition.group_work_start != null
+        ? baseGroups.slice(partition.group_work_start, partition.group_work_end)
+        : seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
 
       // ── Intercalar: calibración mezclada primero, luego trabajo mezclado
       function interleave(a, b) {
