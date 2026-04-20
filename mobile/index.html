@@ -961,7 +961,7 @@
       s  = item.sep_arcsec;
     }
     const z = s < 5 ? 16 : s < 15 ? 15 : s < 40 ? 14 : 13;
-    return `https://www.legacysurvey.org/viewer?ra=${ra}&dec=${dec}&layer=${LS_LAYER}&zoom=${z}&overlays=desi-spec-dr1`;
+    return `https://www.legacysurvey.org/viewer?ra=${ra}&dec=${dec}&layer=${LS_LAYER}&zoom=${z}&desi-spec-dr1=1`;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1399,6 +1399,14 @@
     // Re-mostrar el ítem completo (reinicia timers correctamente)
     showItem(currentIndex);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MOUSE — doble click en imagen → Sky Viewer (desktop browsers)
+  // ═══════════════════════════════════════════════════════════════════════
+  document.getElementById('imgWrapper').addEventListener('dblclick', e => {
+    e.preventDefault();
+    openSkyViewer();
+  });
 
   // ═══════════════════════════════════════════════════════════════════════
   // TOUCH GESTURES — swipe horizontal + doble toque en imagen → Sky Viewer
