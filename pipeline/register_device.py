@@ -16,10 +16,11 @@ Salida:
 Requiere: .env en la raíz del proyecto con SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
 
 Constantes del catálogo:
-    CALIB_PAIRS  = 120   primeros N pares del catálogo, pool de calibración compartido
-    CALIB_GROUPS = 80    primeros N grupos del catálogo, pool de calibración compartido
-    BLOCK_SIZE   = 3000  pares de trabajo asignados por dispositivo
-    catalog_len  = leído dinámicamente desde la ruta PAIRS_CATALOG en .env
+    CALIB_PAIRS      = 120   primeros N pares del catálogo, pool de calibración compartido
+    CALIB_GROUPS     = 80    primeros N grupos del catálogo, pool de calibración compartido
+    BLOCK_SIZE       = 3000  pares de trabajo asignados por dispositivo
+    GROUP_BLOCK_SIZE = 500   grupos de trabajo asignados por dispositivo
+    catalog_len      = leído dinámicamente desde la ruta PAIRS_CATALOG en .env
 """
 
 import argparse
@@ -50,10 +51,11 @@ SERVICE_ROLE_KEY = _env.get('SUPABASE_SERVICE_ROLE_KEY', '')
 CATALOG_PATH     = _env.get('PAIRS_CATALOG', '')
 
 # ── Constantes ────────────────────────────────────────────────────────────────
-CALIB_PAIRS  = 120   # pares de calibración compartidos por todos los usuarios
-CALIB_GROUPS = 80    # grupos de calibración compartidos por todos los usuarios
-CALIB_SIZE   = CALIB_PAIRS   # alias: work_start del primer dispositivo
-BLOCK_SIZE   = 3_000
+CALIB_PAIRS        = 120     # pares de calibración compartidos por todos los usuarios
+CALIB_GROUPS       = 80      # grupos de calibración compartidos por todos los usuarios
+CALIB_SIZE         = CALIB_PAIRS   # alias: work_start del primer dispositivo
+BLOCK_SIZE         = 3_000
+GROUP_BLOCK_SIZE   = 500     # grupos de trabajo por dispositivo
 
 # ── Helpers REST ──────────────────────────────────────────────────────────────
 def _headers():
@@ -73,13 +75,16 @@ def _get_all_partitions() -> list:
 
 
 def _insert_partition(device_id: str, calib_seed: int,
-                      work_start: int, work_end: int) -> None:
+                      work_start: int, work_end: int,
+                      group_work_start: int, group_work_end: int) -> None:
     url  = f'{SUPABASE_URL}/rest/v1/partitions'
     data = json.dumps([{
-        'device_id':  device_id,
-        'calib_seed': calib_seed,
-        'work_start': work_start,
-        'work_end':   work_end,
+        'device_id':        device_id,
+        'calib_seed':       calib_seed,
+        'work_start':       work_start,
+        'work_end':         work_end,
+        'group_work_start': group_work_start,
+        'group_work_end':   group_work_end,
     }]).encode('utf-8')
     req = urlreq.Request(url, data=data, headers={
         **_headers(),
@@ -102,11 +107,11 @@ def register(device_id: str) -> dict:
     if existing:
         return {'status': 'existing', 'partition': existing}
 
-    # Calcular siguiente bloque disponible
+    # Calcular siguiente bloque de pares disponible
     if partitions:
         max_end = max(p['work_end'] for p in partitions)
     else:
-        max_end = CALIB_SIZE  # primer bloque empieza tras la calibración
+        max_end = CALIB_SIZE
 
     work_start = max_end
     work_end   = work_start + BLOCK_SIZE
@@ -116,32 +121,50 @@ def register(device_id: str) -> dict:
             f'Catálogo agotado: todos los {catalog_len:,} pares ya están asignados.'
         )
     if work_end > catalog_len:
-        work_end = catalog_len  # último bloque puede ser más pequeño
+        work_end = catalog_len
+
+    # Calcular siguiente bloque de grupos disponible
+    if partitions:
+        max_group_end = max(p.get('group_work_end', CALIB_GROUPS) for p in partitions)
+    else:
+        max_group_end = CALIB_GROUPS
+
+    group_work_start = max_group_end
+    group_work_end   = group_work_start + GROUP_BLOCK_SIZE
 
     calib_seed = random.randint(0, 999_999)
-    _insert_partition(device_id, calib_seed, work_start, work_end)
+    _insert_partition(device_id, calib_seed, work_start, work_end,
+                      group_work_start, group_work_end)
 
     partition = {
-        'device_id':  device_id,
-        'calib_seed': calib_seed,
-        'work_start': work_start,
-        'work_end':   work_end,
+        'device_id':        device_id,
+        'calib_seed':       calib_seed,
+        'work_start':       work_start,
+        'work_end':         work_end,
+        'group_work_start': group_work_start,
+        'group_work_end':   group_work_end,
     }
     return {'status': 'created', 'partition': partition}
 
 
 def print_summary(result: dict) -> None:
-    p      = result['partition']
-    status = 'YA EXISTÍA' if result['status'] == 'existing' else 'REGISTRADO'
-    n_work = p['work_end'] - p['work_start']
+    p        = result['partition']
+    status   = 'YA EXISTÍA' if result['status'] == 'existing' else 'REGISTRADO'
+    n_pairs  = p['work_end']         - p['work_start']
+    n_groups = p.get('group_work_end', '?') if isinstance(p.get('group_work_end'), int) else '?'
+    gs       = p.get('group_work_start', '?')
+    ge_val   = p.get('group_work_end')
+    n_groups = (ge_val - gs) if isinstance(ge_val, int) and isinstance(gs, int) else '?'
     print(f'\n── Dispositivo: {p["device_id"]}  [{status}] ──────────────────')
-    print(f'  Pool calibración : {CALIB_PAIRS} pares (índices 0–{CALIB_PAIRS-1}) '
-          f'+ {CALIB_GROUPS} grupos (índices 0–{CALIB_GROUPS-1}) '
-          f'= 200 ítems, orden aleatorio con seed={p["calib_seed"]}')
-    print(f'  Bloque de trabajo: índices {p["work_start"]}–{p["work_end"] - 1} '
-          f'({n_work:,} pares)')
+    print(f'  Pool calibración  : {CALIB_PAIRS} pares (0–{CALIB_PAIRS-1}) '
+          f'+ {CALIB_GROUPS} grupos (0–{CALIB_GROUPS-1}) '
+          f'= 200 ítems, seed={p["calib_seed"]}')
+    print(f'  Bloque pares      : índices {p["work_start"]}–{p["work_end"] - 1} '
+          f'({n_pairs:,} pares)')
+    print(f'  Bloque grupos     : índices {gs}–{ge_val - 1 if isinstance(ge_val, int) else "?"} '
+          f'({n_groups} grupos)')
     if result['status'] == 'existing':
-        print(f'  Registrado el    : {p.get("registered_at", "—")}')
+        print(f'  Registrado el     : {p.get("registered_at", "—")}')
     print()
 
 

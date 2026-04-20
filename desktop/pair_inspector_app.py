@@ -649,12 +649,15 @@ class PairValidator:
             (self.possible_mergers, OUTPUT_CSV_PM,  'Posibles mergers'),
             (self.confirmed_pairs,  OUTPUT_CSV_PAR, 'Pares confirmados'),
         ]:
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            if data:
-                pd.DataFrame(data).to_csv(path, index=False)
-                results.append(f'{label}: {len(data)} filas → {path}')
-            else:
-                results.append(f'{label}: (vacío)')
+            try:
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                if data:
+                    pd.DataFrame(data).to_csv(path, index=False)
+                    results.append(f'{label}: {len(data)} filas → {path}')
+                else:
+                    results.append(f'{label}: (vacío)')
+            except OSError as e:
+                results.append(f'{label}: ERROR al escribir — {e}')
         return '\n'.join(results)
 
     # ── Navegación ────────────────────────────────────────────────────────────
@@ -869,12 +872,15 @@ class GroupValidator:
             (self.possible_mergers, OUTPUT_CSV_PM_GROUPS, 'Posibles mergers (grupos)'),
             (self.possible_pairs,   OUTPUT_CSV_PP_GROUPS, 'Posibles pares (grupos)'),
         ]:
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            if data:
-                pd.DataFrame(data).to_csv(path, index=False)
-                results.append(f'{label}: {len(data)} → {path}')
-            else:
-                results.append(f'{label}: (vacío)')
+            try:
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                if data:
+                    pd.DataFrame(data).to_csv(path, index=False)
+                    results.append(f'{label}: {len(data)} → {path}')
+                else:
+                    results.append(f'{label}: (vacío)')
+            except OSError as e:
+                results.append(f'{label}: ERROR al escribir — {e}')
         return '\n'.join(results)
 
     # ── Navegación ────────────────────────────────────────────────────────────

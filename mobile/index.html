@@ -1116,8 +1116,7 @@
 
     document.getElementById('ctrText').textContent = `${idx + 1} / ${catalog.length}`;
 
-    const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]).size;
-    document.getElementById('progFill').style.width = `${(done / catalog.length * 100).toFixed(2)}%`;
+    document.getElementById('progFill').style.width = `${(_countDone() / catalog.length * 100).toFixed(2)}%`;
 
     const overlay = document.getElementById('spinnerOverlay');
     overlay.style.display = 'flex';
@@ -1326,8 +1325,7 @@
     _applyBorder(newCl, item);
     _renderInfo(item, newCl);
 
-    const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]).size;
-    document.getElementById('progFill').style.width = `${(done / catalog.length * 100).toFixed(2)}%`;
+    document.getElementById('progFill').style.width = `${(_countDone() / catalog.length * 100).toFixed(2)}%`;
 
     saveState();
   }
@@ -1339,6 +1337,15 @@
     let next = currentIndex + dir;
     next = Math.max(0, Math.min(catalog.length - 1, next));
     showItem(next);
+  }
+
+  function _countDone() {
+    // Calibración: solo cuenta votos del propio móvil
+    // Trabajo: cuenta votos móvil + desktop
+    return catalog.filter(it => {
+      const k = itemKey(it);
+      return classifications[k] || (!_isCalibItem(it) && desktopCl[k]);
+    }).length;
   }
 
   function _isCalibItem(item) {
