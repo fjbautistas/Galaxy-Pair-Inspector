@@ -1123,6 +1123,9 @@
     overlay.innerHTML = '<div class="spinner"></div>';
 
     const img = document.getElementById('galaxyImg');
+    img.onload  = null;
+    img.onerror = null;
+    img.src = '';                 // reset — garantiza que onload dispare siempre
     img.style.opacity = '0';
     document.getElementById('markerCanvas').getContext('2d')
       .clearRect(0, 0, img.naturalWidth, img.naturalHeight);
