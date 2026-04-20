@@ -1593,7 +1593,9 @@
         }),
       });
       if (r.ok) {
-        const row = await r.json();
+        const rows = await r.json();
+        // RETURNS TABLE devuelve array
+        const row = Array.isArray(rows) ? rows[0] : rows;
         if (row && row.device_id) return row;
       }
     } catch (_) {}
