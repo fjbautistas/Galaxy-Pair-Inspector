@@ -50,7 +50,7 @@ GROUP_Z_MIN   = 0.01   # excluir grupos con z_center ≤ este valor (artifact Fo
 PROGRESS_FILE = 'outputs/catalogs/progress.json'
 TEMPLATE_HTML = 'mobile/index.html'
 OUTPUT_HTML   = 'mobile/GalPairs.html'
-RP_MAX_KPC    = 12.0
+RP_MAX_KPC    = 20.0
 MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
 
 # ── Catálogo ──────────────────────────────────────────────────────────────────
