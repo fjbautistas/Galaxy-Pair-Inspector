@@ -59,13 +59,14 @@ def _fetch_partition(device_id: str) -> 'dict | None':
         return None
 
 
-def _supabase_upsert(id_par: int, classification: str):
-    """Upserts a single classification to Supabase in a background thread."""
+def _supabase_upsert(id_par: int, classification: str, on_error=None):
+    """Upserts a single classification to Supabase in a background thread.
+    on_error: optional callable(msg) invoked on failure (runs in bg thread — use root.after)."""
     if not _SUPA_URL or not _SUPA_ANON_KEY:
         return
     def _do():
         try:
-            requests.post(
+            r = requests.post(
                 f'{_SUPA_URL}/rest/v1/clasificaciones',
                 headers={
                     'apikey':        _SUPA_ANON_KEY,
@@ -81,8 +82,11 @@ def _supabase_upsert(id_par: int, classification: str):
                 }],
                 timeout=10,
             )
-        except Exception:
-            pass   # silent — progress.json is always the primary backup
+            if not r.ok and on_error:
+                on_error(f'Cloud sync error {r.status_code}')
+        except Exception as e:
+            if on_error:
+                on_error(f'Cloud sync failed: {e}')
     threading.Thread(target=_do, daemon=True).start()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1512,6 +1516,15 @@ class PairInspectorApp:
         self.root.bind('<G>',          lambda e: self._classify_selected('G'))
         self.root.bind('<Control-e>',  lambda e: self._export())
 
+    # ── Cloud sync helper ─────────────────────────────────────────────────────
+
+    def _cloud_upsert(self, id_par: int, classification: str):
+        """Llama a _supabase_upsert con callback que muestra errores en la status bar."""
+        def _on_error(msg):
+            self.root.after(0, lambda: self.lbl_status.config(
+                text=f'⚠ {msg}', fg='#ffaa44'))
+        _supabase_upsert(id_par, classification, on_error=_on_error)
+
     # ── Actualización de barra de estado ──────────────────────────────────────
 
     def _update_status_bar(self):
@@ -1908,10 +1921,10 @@ class PairInspectorApp:
             gid = int(row.get('group_id', 0))
             if gid:
                 supa_id = gid + GroupValidator.SUPABASE_OFFSET
-                if   gv.is_false_positive(row):   _supabase_upsert(supa_id, 'FP')
-                elif gv.is_confirmed_group(row):   _supabase_upsert(supa_id, 'GROUP')
-                elif gv.is_possible_merger(row):   _supabase_upsert(supa_id, 'PM')
-                elif gv.is_possible_pair(row):     _supabase_upsert(supa_id, 'PP')
+                if   gv.is_false_positive(row):   self._cloud_upsert(supa_id, 'FP')
+                elif gv.is_confirmed_group(row):   self._cloud_upsert(supa_id, 'GROUP')
+                elif gv.is_possible_merger(row):   self._cloud_upsert(supa_id, 'PM')
+                elif gv.is_possible_pair(row):     self._cloud_upsert(supa_id, 'PP')
 
             cell._update_btn_state(gv)
             self._update_status_bar()
@@ -1945,9 +1958,9 @@ class PairInspectorApp:
             # Supabase
             id_par = int(row.get('id_par', 0))
             if id_par:
-                if   pv.is_false_positive(row):   _supabase_upsert(id_par, 'FP')
-                elif pv.is_confirmed_pair(row):    _supabase_upsert(id_par, 'Pair')
-                elif pv.is_possible_merger(row):   _supabase_upsert(id_par, 'PM')
+                if   pv.is_false_positive(row):   self._cloud_upsert(id_par, 'FP')
+                elif pv.is_confirmed_pair(row):    self._cloud_upsert(id_par, 'Pair')
+                elif pv.is_possible_merger(row):   self._cloud_upsert(id_par, 'PM')
 
             cell._update_btn_state(pv)
             self._update_status_bar()
@@ -2359,10 +2372,10 @@ class PairInspectorApp:
                     gv.unmark_possible_merger(row_data)
             gv.save_progress()
             supa_id = gid + GroupValidator.SUPABASE_OFFSET
-            if   gv.is_false_positive(row_data):  _supabase_upsert(supa_id, 'FP')
-            elif gv.is_confirmed_group(row_data):  _supabase_upsert(supa_id, 'GROUP')
-            elif gv.is_possible_merger(row_data):  _supabase_upsert(supa_id, 'PM')
-            elif gv.is_possible_pair(row_data):    _supabase_upsert(supa_id, 'PP')
+            if   gv.is_false_positive(row_data):  self._cloud_upsert(supa_id, 'FP')
+            elif gv.is_confirmed_group(row_data):  self._cloud_upsert(supa_id, 'GROUP')
+            elif gv.is_possible_merger(row_data):  self._cloud_upsert(supa_id, 'PM')
+            elif gv.is_possible_pair(row_data):    self._cloud_upsert(supa_id, 'PP')
             _refresh_state()
             self._update_status_bar()
 
@@ -2551,9 +2564,9 @@ class PairInspectorApp:
             # Auto-save to Supabase in background
             _id = int(row_data.get('id_par', 0))
             if _id:
-                if   self.v.is_false_positive(row_data):  _supabase_upsert(_id, 'FP')
-                elif self.v.is_confirmed_pair(row_data):   _supabase_upsert(_id, 'Pair')
-                elif self.v.is_possible_merger(row_data):  _supabase_upsert(_id, 'PM')
+                if   self.v.is_false_positive(row_data):  self._cloud_upsert(_id, 'FP')
+                elif self.v.is_confirmed_pair(row_data):   self._cloud_upsert(_id, 'Pair')
+                elif self.v.is_possible_merger(row_data):  self._cloud_upsert(_id, 'PM')
             _refresh_state()
             self._update_status_bar()
 

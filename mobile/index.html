@@ -357,6 +357,8 @@
   <header>
     <div class="hdr-title">🌌 GalPairs</div>
     <div class="hdr-counter" id="ctrText">— / —</div>
+    <span id="syncDot" title="Cloud sync status"
+          style="width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin:0 4px;flex-shrink:0"></span>
     <button class="hdr-btn" onclick="openTutorial()" title="Tutorial">?</button>
     <button class="hdr-btn" onclick="openModal('stats')" title="Estadísticas">📊</button>
     <button class="hdr-btn" onclick="openModal('export')" title="Export">⬆︎</button>
@@ -1310,12 +1312,23 @@
     showItem(next);
   }
 
+  function _isCalibItem(item) {
+    // Pares de calibración: id_par < CALIB_PAIRS; grupos de calibración: posición en baseGroups < CALIB_GROUPS
+    if (isGroup(item)) return item._calibGroup === true;
+    return item.id_par < CALIB_PAIRS;
+  }
+
   function skipToUnclassified(silent = false) {
     if (!catalog.length) return;
-    const done = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
+    const mobileDone = new Set(Object.keys(classifications));
+    const allDone    = new Set([...mobileDone, ...Object.keys(desktopCl)]);
     for (let i = 1; i <= catalog.length; i++) {
-      const idx = (currentIndex + i) % catalog.length;
-      if (!done.has(itemKey(catalog[idx]))) { showItem(idx); return; }
+      const idx  = (currentIndex + i) % catalog.length;
+      const item = catalog[idx];
+      const k    = itemKey(item);
+      // Los ítems de calibración deben ser vistos por TODOS aunque desktop los haya clasificado
+      const doneSet = _isCalibItem(item) ? mobileDone : allDone;
+      if (!doneSet.has(k)) { showItem(idx); return; }
     }
     if (!silent) alert('All items in the catalog have been classified! 🎉');
   }
@@ -1433,10 +1446,19 @@
     return isGroup(item) ? item.group_id + GROUP_OFFSET : item.id_par;
   }
 
+  function _setSyncDot(state) {
+    // state: 'saving' | 'ok' | 'error'
+    const dot = document.getElementById('syncDot');
+    if (!dot) return;
+    dot.style.background = state === 'ok' ? '#4dccaa' : state === 'error' ? '#ef5350' : '#ffaa44';
+    dot.title = state === 'ok' ? 'Cloud: saved' : state === 'error' ? 'Cloud: error — saved locally' : 'Cloud: saving…';
+  }
+
   function _saveToCloud(item, classification) {
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
     if (!url || !key) return;
+    _setSyncDot('saving');
     fetch(`${url}/rest/v1/clasificaciones`, {
       method: 'POST',
       headers: {
@@ -1448,7 +1470,9 @@
         device_id: deviceId, id_par: _supabaseIdPar(item),
         classification, exported_at: new Date().toISOString()
       }])
-    }).catch(() => {});
+    })
+    .then(r => _setSyncDot(r.ok ? 'ok' : 'error'))
+    .catch(() => _setSyncDot('error'));
   }
 
   async function syncToCloud() {
@@ -1673,7 +1697,10 @@
         : seededShuffle(basePairs.slice(CALIB_PAIRS), seed ^ 0xA5F3);
 
       // ── Grupos: calibración (primeros CALIB_GROUPS, mismos para todos, orden distinto)
-      const calibGroups = seededShuffle(baseGroups.slice(0, CALIB_GROUPS), seed ^ 0xCAFE);
+      const calibGroups = seededShuffle(
+        baseGroups.slice(0, CALIB_GROUPS).map(g => ({...g, _calibGroup: true})),
+        seed ^ 0xCAFE
+      );
       // Trabajo: resto de grupos, shuffleados por dispositivo
       const workGroups  = seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
 
@@ -1695,10 +1722,11 @@
 
       // Si el ítem actual ya fue clasificado (ej. después de reset de partición),
       // saltar al próximo sin clasificar para no confundir al usuario
-      const _initDone = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
-      if (_initDone.has(itemKey(catalog[currentIndex]))) {
-        // Buscar próximo sin clasificar desde el inicio
-        const _next = catalog.findIndex(item => !_initDone.has(itemKey(item)));
+      const _mobileDone = new Set(Object.keys(classifications));
+      const _allDone    = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
+      const _initDoneFor = item => _isCalibItem(item) ? _mobileDone : _allDone;
+      if (_initDoneFor(catalog[currentIndex]).has(itemKey(catalog[currentIndex]))) {
+        const _next = catalog.findIndex(item => !_initDoneFor(item).has(itemKey(item)));
         if (_next !== -1) currentIndex = _next;
       }
       showItem(currentIndex);
