@@ -1746,13 +1746,13 @@
         ? baseGroups.slice(partition.group_work_start, partition.group_work_end)
         : seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
 
-      // ── Intercalar: calibración mezclada primero, luego trabajo mezclado
-      function interleave(a, b) {
+      // ── Intercalar: 5 pares por cada 1 grupo
+      function interleave(pairs, groups, ratio = 5) {
         const out = [];
-        const n = Math.max(a.length, b.length);
-        for (let i = 0; i < n; i++) {
-          if (i < a.length) out.push(a[i]);
-          if (i < b.length) out.push(b[i]);
+        let pi = 0, gi = 0;
+        while (pi < pairs.length || gi < groups.length) {
+          for (let r = 0; r < ratio && pi < pairs.length; r++) out.push(pairs[pi++]);
+          if (gi < groups.length) out.push(groups[gi++]);
         }
         return out;
       }
