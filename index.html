@@ -2,10 +2,18 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=mobile/GalPairs.html">
   <title>Galaxy Pair Inspector</title>
+  <script>
+    // Preservar el hash (deviceId, p.ej. #A23BY) durante el redirect.
+    // Sin esto, los enlaces de recuperación pierden la identidad del usuario.
+    var hash = window.location.hash || '';
+    window.location.replace('mobile/GalPairs.html' + hash);
+  </script>
 </head>
 <body>
-  <script>window.location.replace('mobile/GalPairs.html');</script>
+  <noscript>
+    <meta http-equiv="refresh" content="0; url=mobile/GalPairs.html">
+    Redirigiendo a <a href="mobile/GalPairs.html">la aplicación</a>…
+  </noscript>
 </body>
 </html>
