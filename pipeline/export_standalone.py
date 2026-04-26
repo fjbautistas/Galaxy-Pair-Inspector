@@ -50,7 +50,9 @@ GROUP_Z_MIN   = 0.01   # excluir grupos con z_center ≤ este valor (artifact Fo
 PROGRESS_FILE = 'outputs/catalogs/progress.json'
 TEMPLATE_HTML = 'mobile/index.html'
 OUTPUT_HTML   = 'mobile/GalPairs.html'
-RP_MAX_KPC    = 20.0
+RP_MAX_KPC    = 50.0   # extendido desde 20 → permite régimen rp ∈ [20,50] kpc
+RP_V1_KPC     = 20.0   # frontera entre slice v1 (legacy) y v2 (suplementario)
+SUPP_CALIB_JSON = 'data/supplementary_calib_ids.json'  # IDs calibración suplementaria
 MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
 
 # ── Catálogo ──────────────────────────────────────────────────────────────────
@@ -73,15 +75,44 @@ def _load_desktop_classified(progress_file):
     return result
 
 
+def _load_supp_calib_ids() -> list:
+    """Carga la lista canónica de IDs de calibración suplementaria (rp ∈ [20,50])."""
+    if not Path(SUPP_CALIB_JSON).exists():
+        print(f'  Aviso: {SUPP_CALIB_JSON} no encontrado — _SUPP_CALIB_IDS quedará vacío')
+        return []
+    with open(SUPP_CALIB_JSON) as f:
+        data = json.load(f)
+    ids = list(data.get('id_par', []))
+    print(f'  {len(ids)} IDs de calibración suplementaria cargados')
+    return ids
+
+
 def build_catalog() -> dict:
     print('Leyendo catálogo…')
-    df = pd.read_parquet(CATALOG_PATH, engine='fastparquet')
+    try:
+        df = pd.read_parquet(CATALOG_PATH, engine='fastparquet')
+    except Exception:
+        df = pd.read_parquet(CATALOG_PATH, engine='pyarrow')
     print(f'  {len(df):,} pares totales')
 
     rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in df.columns), None)
     if rp_col and RP_MAX_KPC:
         df = df[df[rp_col] < RP_MAX_KPC].reset_index(drop=True)
         print(f'  {len(df):,} pares tras filtro rp < {RP_MAX_KPC} kpc')
+
+    # ─── Orden estable: rp<RP_V1_KPC primero (preserva posiciones 0..N1-1
+    #     ya repartidas a usuarios existentes), luego rp∈[RP_V1_KPC, RP_MAX_KPC).
+    if rp_col:
+        mask_v1 = df[rp_col] < RP_V1_KPC
+        df_v1 = df[mask_v1]
+        df_v2 = df[~mask_v1]
+        df = pd.concat([df_v1, df_v2], ignore_index=True)
+        n_v1 = len(df_v1)
+        n_v2 = len(df_v2)
+        print(f'  Orden estable → v1 (rp<{RP_V1_KPC}): {n_v1:,}  |  v2 (rp∈[{RP_V1_KPC},{RP_MAX_KPC})): {n_v2:,}')
+    else:
+        n_v1 = len(df)
+        n_v2 = 0
 
     if 'sep_arcsec' not in df.columns:
         df['sep_arcsec'] = _compute_sep(df)
@@ -101,12 +132,12 @@ def build_catalog() -> dict:
             'dec1':       round(float(row['dec1']),   5),
             'ra2':        round(float(row['ra2']),    5),
             'dec2':       round(float(row['dec2']),   5),
-            'ra_mid':     round(float(row['ra_mid']),  6),
-            'dec_mid':    round(float(row['dec_mid']), 6),
-            'sep_arcsec': round(float(row['sep_arcsec']), 3),
+            'ra_mid':     round(float(row['ra_mid']),  5),
+            'dec_mid':    round(float(row['dec_mid']), 5),
+            'sep_arcsec': round(float(row['sep_arcsec']), 1),
         }
         if rp_col:
-            entry['rp'] = round(float(row[rp_col]), 3)
+            entry['rp'] = round(float(row[rp_col]), 1)
         if has_z1:
             entry['z1'] = round(float(row['z1']), 4)
         if has_z2:
@@ -120,14 +151,20 @@ def build_catalog() -> dict:
     desktop_cl = _load_desktop_classified(PROGRESS_FILE)
     print(f'  {len(desktop_cl)} pares ya clasificados en escritorio')
 
+    supp_calib_ids = _load_supp_calib_ids()
+
     groups = _build_groups_catalog()
 
     return {
         'exported_at':        datetime.now().isoformat(),
         'rp_max_kpc':         RP_MAX_KPC,
+        'rp_v1_kpc':          RP_V1_KPC,
+        'n_pairs_v1':         n_v1,
+        'n_pairs_v2':         n_v2,
         'total_pairs':        len(pairs),
         'total_groups':       len(groups),
         'desktop_classified': desktop_cl,
+        'supp_calib_ids':     supp_calib_ids,
         'pairs':              pairs,
         'groups':             groups,
     }
@@ -140,7 +177,10 @@ def _build_groups_catalog() -> list:
         return []
 
     print('Construyendo catálogo de grupos para móvil…')
-    df = pd.read_parquet(GROUPS_CATALOG_PATH, engine='fastparquet')
+    try:
+        df = pd.read_parquet(GROUPS_CATALOG_PATH, engine='fastparquet')
+    except Exception:
+        df = pd.read_parquet(GROUPS_CATALOG_PATH, engine='pyarrow')
     groups = []
     for gid, edges in df.groupby('fof_component_id'):
         half1 = edges[['id1', 'ra1', 'dec1', 'z1']].rename(
@@ -190,8 +230,12 @@ def main():
         print(f'ERROR: No se encontró la plantilla {TEMPLATE_HTML}')
         sys.exit(1)
 
-    catalog      = build_catalog()
-    catalog_json = json.dumps(catalog, separators=(',', ':'))
+    catalog = build_catalog()
+
+    # Extraer la lista de IDs suplementarios para exponerla aparte
+    supp_ids = catalog.pop('supp_calib_ids', [])
+    catalog_json  = json.dumps(catalog,  separators=(',', ':'))
+    supp_ids_json = json.dumps(supp_ids, separators=(',', ':'))
 
     with open(TEMPLATE_HTML, encoding='utf-8') as f:
         html = f.read()
@@ -200,7 +244,13 @@ def main():
         f'window._SUPABASE_URL={json.dumps(SUPABASE_URL)};'
         f'window._SUPABASE_ANON_KEY={json.dumps(SUPABASE_ANON_KEY)};'
     )
-    inject = f'<script>window._CATALOG={catalog_json};{supabase_js}</script>\n  '
+    inject = (
+        f'<script>'
+        f'window._CATALOG={catalog_json};'
+        f'window._SUPP_CALIB_IDS={supp_ids_json};'
+        f'{supabase_js}'
+        f'</script>\n  '
+    )
     html = html.replace(
         '<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS',
         inject + '<script>\n  // ═══════════════════════════════════════════════════════════════════════\n  // CONSTANTS'
@@ -216,8 +266,11 @@ def main():
 
     size_mb = Path(OUTPUT_HTML).stat().st_size / 1e6
     print(f'\n✓  Generado: {OUTPUT_HTML}')
-    print(f'   Pares: {catalog["total_pairs"]:,}  |  Grupos: {catalog["total_groups"]:,}')
-    print(f'   Tamaño: {size_mb:.1f} MB  |  {len(catalog["pairs"]):,} pares')
+    print(f'   Pares totales: {catalog["total_pairs"]:,}'
+          f'  (v1 rp<{RP_V1_KPC}: {catalog["n_pairs_v1"]:,}'
+          f'  |  v2 rp∈[{RP_V1_KPC},{RP_MAX_KPC}): {catalog["n_pairs_v2"]:,})')
+    print(f'   Grupos: {catalog["total_groups"]:,}  |  Calibración suplementaria: {len(supp_ids)} IDs')
+    print(f'   Tamaño: {size_mb:.1f} MB')
     print()
     print('Siguiente paso — publicar en GitHub Pages:')
     print('  git add mobile/GalPairs.html')

@@ -822,8 +822,9 @@
   // CONSTANTS — match desktop app
   // ═══════════════════════════════════════════════════════════════════════
   const LS_LAYER           = 'ls-dr10';
-  const IMG_SIZE           = 224;
+  const IMG_SIZE           = 160;    // 224 → 160: ahorra ~49% ancho de banda en cutouts
   const PADDING_FACTOR     = 2.5;
+  const MIN_FOV_ARCSEC     = 86;     // FOV mínimo en pares cercanos: evita que el frame se cierre demasiado
   const IMG_TIMEOUT_MS     = 9000;   // auto-skip si la imagen tarda más de 9 s
   const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
   const GROUP_OFFSET       = 10_000_000;                 // same as desktop
@@ -845,6 +846,14 @@
   let _countdownTimer  = null;   // global — interval del countdown visible
   let deviceId         = '';
   const _cloudTimers   = {};
+
+  // ── Estado para flujo two-slice (calibración suplementaria + slice v2) ─
+  let _basePairs       = [];   // referencia al catálogo completo (para reconstruir el work block tras claim_v2_slice)
+  let _baseGroups      = [];
+  let _partition       = null; // partition actual del dispositivo (mutable: claim_v2_slice la actualiza)
+  let _seed            = 0;    // seed personal del dispositivo (para reusarlo al reconstruir)
+  let _calibIdSet      = new Set();  // ids de items considerados de calibración para este usuario
+  let _claimingV2      = false;       // flag para evitar llamadas concurrentes a claim_v2_slice
 
   // ── helpers tipo item ───────────────────────────────────────────────────
   function isGroup(item)  { return !!item.group_id; }
@@ -900,7 +909,11 @@
   // MATH — identical to Python desktop
   // ═══════════════════════════════════════════════════════════════════════
   function adaptivePixscale(sepArcsec) {
-    return Math.max(0.3, Math.min(2.0, (sepArcsec * PADDING_FACTOR) / IMG_SIZE));
+    // Floor parametrizado por MIN_FOV_ARCSEC para evitar que pares cercanos
+    // queden demasiado pegados en el frame.
+    const ps_target = (sepArcsec * PADDING_FACTOR) / IMG_SIZE;
+    const ps_floor  = MIN_FOV_ARCSEC / IMG_SIZE;
+    return Math.max(ps_floor, Math.min(2.0, ps_target));
   }
 
   function radecToPixel(ra, dec, raMid, decMid, pixscale) {
@@ -917,8 +930,9 @@
   // URLS
   // ═══════════════════════════════════════════════════════════════════════
   function _groupPixscale(item) {
-    const sep  = Math.max(item.max_sep_arcsec || 10, 10);
-    let   ps   = Math.max(0.3, Math.min(5.0, sep * PADDING_FACTOR / IMG_SIZE));
+    const sep      = Math.max(item.max_sep_arcsec || 10, 10);
+    const ps_floor = MIN_FOV_ARCSEC / IMG_SIZE;
+    let   ps       = Math.max(ps_floor, Math.min(5.0, sep * PADDING_FACTOR / IMG_SIZE));
     const ras  = item.member_ra  || [];
     const decs = item.member_dec || [];
     if (ras.length > 0) {
@@ -1344,6 +1358,187 @@
     document.getElementById('progFill').style.width = `${(_countDone() / catalog.length * 100).toFixed(2)}%`;
 
     saveState(true);  // inmediato al clasificar — no perder el voto si cierran la app
+
+    // Hook: si el usuario acaba de completar la calibración suplementaria,
+    // reclamar slice v2 (silencioso → mostrar mensaje motivacional al final).
+    _maybeClaimV2Slice();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CALIB SUPLEMENTARIA → claim_v2_slice (silencioso hasta el voto #150)
+  // ═══════════════════════════════════════════════════════════════════════
+  async function _maybeClaimV2Slice() {
+    if (_claimingV2) return;
+    if (!_partition || _partition.calib_v !== 1) return;
+    const suppIds = window._SUPP_CALIB_IDS || [];
+    if (suppIds.length === 0) return;
+
+    // ¿Ya están clasificados los 150 suplementarios?
+    let n = 0;
+    for (const id of suppIds) {
+      if (classifications[String(id)]) n++;
+    }
+    if (n < suppIds.length) return;
+
+    _claimingV2 = true;
+    try {
+      // Contar pares ya clasificados dentro del slice v1 actual (Lectura B)
+      const v1Ids = new Set();
+      const ws = _partition.work_start | 0;
+      const we = _partition.work_end   | 0;
+      for (let i = ws; i < we && i < _basePairs.length; i++) {
+        v1Ids.add(_basePairs[i].id_par);
+      }
+      let nClassifV1 = 0;
+      for (const k of Object.keys(classifications)) {
+        const idNum = Number(k);
+        if (Number.isFinite(idNum) && v1Ids.has(idNum)) nClassifV1++;
+      }
+
+      const url = window._SUPABASE_URL, key = window._SUPABASE_ANON_KEY;
+      let updated = null;
+      if (url && key) {
+        const r = await fetch(`${url}/rest/v1/rpc/claim_v2_slice`, {
+          method:  'POST',
+          headers: {
+            'apikey':        key,
+            'Authorization': `Bearer ${key}`,
+            'Content-Type':  'application/json',
+          },
+          body: JSON.stringify({
+            p_device_id:    deviceId,
+            p_target_total: BLOCK_SIZE,
+            p_n_classif_v1: nClassifV1,
+            p_v1_max_idx:   ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 31976),
+            p_v2_max_idx:   ((window._CATALOG && window._CATALOG.total_pairs) || _basePairs.length),
+          }),
+        });
+        if (r.ok) {
+          const rows = await r.json();
+          updated = Array.isArray(rows) ? rows[0] : rows;
+        }
+      }
+
+      if (updated) {
+        Object.assign(_partition, updated);  // mutate in-place
+      } else {
+        // Fallback: marcar localmente como calib_v=2 para no reintentar en bucle
+        _partition.calib_v = 2;
+      }
+
+      _rebuildCatalogAfterV2();
+      _showUnlockToast();
+    } catch (e) {
+      console.warn('claim_v2_slice failed:', e);
+      _partition.calib_v = 2;  // evitar reintentos infinitos en esta sesión
+    } finally {
+      _claimingV2 = false;
+    }
+  }
+
+  function _rebuildCatalogAfterV2() {
+    // Reconstruir el catálogo expulsando la calibración suplementaria del set
+    // (ya quedó clasificada y no debe seguirse considerando "calibración" para
+    //  el conteo de progreso) y añadiendo el nuevo slice v2 al work block.
+    if (!_partition) return;
+
+    const calibBasePairs = _basePairs.slice(0, CALIB_PAIRS);
+    const calibBaseIds   = calibBasePairs.map(p => p.id_par);
+    _calibIdSet = new Set(calibBaseIds);  // ya no incluye los 150 suplementarios
+
+    const calibPairs = seededShuffle(calibBasePairs, _seed);
+
+    const workPairs = [
+      ..._basePairs.slice(_partition.work_start, _partition.work_end),
+      ...((_partition.work_start_v2 != null && _partition.work_end_v2 != null)
+           ? _basePairs.slice(_partition.work_start_v2, _partition.work_end_v2)
+           : []),
+    ];
+
+    const calibGroups = seededShuffle(
+      _baseGroups.slice(0, CALIB_GROUPS).map(g => ({...g, _calibGroup: true})),
+      _seed ^ 0xCAFE
+    );
+    const workGroups = (_partition.group_work_start != null)
+      ? _baseGroups.slice(_partition.group_work_start, _partition.group_work_end)
+      : seededShuffle(_baseGroups.slice(CALIB_GROUPS), _seed ^ 0x1F2E3D);
+
+    function interleave(pairs, groups, ratio = 5) {
+      const out = [];
+      let pi = 0, gi = 0;
+      while (pi < pairs.length || gi < groups.length) {
+        for (let r = 0; r < ratio && pi < pairs.length; r++) out.push(pairs[pi++]);
+        if (gi < groups.length) out.push(groups[gi++]);
+      }
+      return out;
+    }
+
+    // Preservar la posición lógica: el item actual sigue siendo el mismo objeto
+    const currentItem = catalog[currentIndex];
+    catalog = [
+      ...interleave(calibPairs, calibGroups),
+      ...interleave(workPairs,  workGroups),
+    ];
+
+    // Re-localizar el currentIndex (si el ítem actual sigue en el catálogo)
+    if (currentItem) {
+      const ck = itemKey(currentItem);
+      const newIdx = catalog.findIndex(it => itemKey(it) === ck);
+      if (newIdx >= 0) currentIndex = newIdx;
+      else currentIndex = Math.min(currentIndex, catalog.length - 1);
+    }
+  }
+
+  function _showUnlockToast() {
+    // Modal celebratorio — aparece solo una vez tras completar la suplementaria
+    let el = document.getElementById('unlockToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'unlockToast';
+      el.innerHTML = `
+        <div class="unlock-card">
+          <div class="unlock-emoji">🔥</div>
+          <div class="unlock-title">You crushed it!</div>
+          <div class="unlock-subtitle">Pro Inspector unlocked</div>
+          <div class="unlock-body">
+            You smashed the calibration barrier. Like a true pro, your eye is
+            now trained on the full separation range — pairs out to <b>50 kpc</b>
+            are no match for you. Keep that streak alive! 🚀
+          </div>
+          <button class="unlock-close" onclick="document.getElementById('unlockToast').remove()">Let's go!</button>
+        </div>`;
+      Object.assign(el.style, {
+        position:'fixed', inset:'0', zIndex:'9999',
+        background:'rgba(0,0,0,0.65)', display:'flex',
+        alignItems:'center', justifyContent:'center',
+        padding:'20px',
+      });
+      const style = document.createElement('style');
+      style.textContent = `
+        .unlock-card     { background:#1a1d24; border:1px solid #ff9c3a; border-radius:14px;
+                           padding:26px 22px; max-width:340px; text-align:center;
+                           box-shadow:0 8px 32px rgba(255,156,58,0.35); animation: unlockPop .4s ease; }
+        .unlock-emoji    { font-size:54px; margin-bottom:6px; animation: unlockBounce .9s ease infinite alternate; }
+        .unlock-title    { color:#ffe66d; font-size:22px; font-weight:700; letter-spacing:.3px; }
+        .unlock-subtitle { color:#ff9c3a; font-size:13px; font-weight:600; text-transform:uppercase;
+                           letter-spacing:1.2px; margin: 4px 0 14px; }
+        .unlock-body     { color:#cfd6e3; font-size:14px; line-height:1.5; margin-bottom:18px; }
+        .unlock-close    { background:linear-gradient(135deg, #ff9c3a, #ffc043); color:#1a1d24;
+                           border:none; padding:11px 26px; border-radius:8px;
+                           font-size:14px; font-weight:700; cursor:pointer;
+                           box-shadow:0 2px 8px rgba(255,156,58,0.4); }
+        .unlock-close:hover { filter: brightness(1.08); }
+        @keyframes unlockPop {
+          0%   { transform: scale(0.8); opacity: 0; }
+          100% { transform: scale(1.0); opacity: 1; }
+        }
+        @keyframes unlockBounce {
+          from { transform: translateY(0)    rotate(-3deg); }
+          to   { transform: translateY(-4px) rotate(3deg); }
+        }`;
+      document.head.appendChild(style);
+      document.body.appendChild(el);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1365,9 +1560,11 @@
   }
 
   function _isCalibItem(item) {
-    // Pares de calibración: id_par < CALIB_PAIRS; grupos de calibración: posición en baseGroups < CALIB_GROUPS
+    // Grupos de calibración: marcados con _calibGroup en init().
+    // Pares de calibración: presentes en _calibIdSet (incluye los 120 base
+    // y, para usuarios calib_v=1, los 150 suplementarios).
     if (isGroup(item)) return item._calibGroup === true;
-    return item.id_par < CALIB_PAIRS;
+    return _calibIdSet.has(item.id_par);
   }
 
   function skipToUnclassified(silent = false) {
@@ -1772,10 +1969,43 @@
 
       const seed = partition ? partition.calib_seed : strToSeed(deviceId);
 
-      // ── Pares: calibración (primeros CALIB_PAIRS, orden distinto por usuario)
-      const calibPairs = seededShuffle(basePairs.slice(0, CALIB_PAIRS), seed);
-      const workPairs  = partition
-        ? basePairs.slice(partition.work_start, partition.work_end)
+      // Guardar referencias globales para reconstrucción tras claim_v2_slice
+      _basePairs  = basePairs;
+      _baseGroups = baseGroups;
+      _partition  = partition;
+      _seed       = seed;
+
+      // ── Calibración base + suplementaria (silenciosa para calib_v=1) ─
+      const calibBasePairs = basePairs.slice(0, CALIB_PAIRS);
+      const calibBaseIds   = calibBasePairs.map(p => p.id_par);
+      const suppCalibIds   = window._SUPP_CALIB_IDS || [];
+      const calibV         = (partition && partition.calib_v != null) ? partition.calib_v : 1;
+      const needsSupp      = (calibV === 1 && suppCalibIds.length > 0);
+
+      // Set de ids considerados "de calibración" para este usuario
+      _calibIdSet = new Set([
+        ...calibBaseIds,
+        ...(needsSupp ? suppCalibIds : []),
+      ]);
+
+      // 1) Calibración base: 120 pares, orden seeded (igual que antes)
+      const calibPairs = seededShuffle(calibBasePairs, seed);
+
+      // 2) Calibración suplementaria: 150 pares, orden SECUENCIAL (lista canónica),
+      //    solo si el usuario aún no la completó
+      const idToPair = new Map(basePairs.map(p => [p.id_par, p]));
+      const suppCalibPairs = needsSupp
+        ? suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined)
+        : [];
+
+      // 3) Work pairs: hasta dos slices (v1 + v2) si el usuario ya hizo claim_v2_slice
+      const workPairs = partition
+        ? [
+            ...basePairs.slice(partition.work_start, partition.work_end),
+            ...((partition.work_start_v2 != null && partition.work_end_v2 != null)
+                 ? basePairs.slice(partition.work_start_v2, partition.work_end_v2)
+                 : []),
+          ]
         : seededShuffle(basePairs.slice(CALIB_PAIRS), seed ^ 0xA5F3);
 
       // ── Grupos: calibración (primeros CALIB_GROUPS, mismos para todos, orden distinto)
@@ -1798,8 +2028,15 @@
         }
         return out;
       }
-      catalog = [...interleave(calibPairs, calibGroups),
-                 ...interleave(workPairs,  workGroups)];
+      // Catálogo final:
+      //   1. Calib base (intercalada con grupos calib)
+      //   2. Calib suplementaria (sin grupos, secuencial) — solo si calib_v=1
+      //   3. Work block (intercalado con grupos work)
+      catalog = [
+        ...interleave(calibPairs, calibGroups),
+        ...suppCalibPairs,
+        ...interleave(workPairs,  workGroups),
+      ];
 
       if (!catalog.length) { showNoCatalog(); return; }
       if (currentIndex >= catalog.length) currentIndex = 0;
