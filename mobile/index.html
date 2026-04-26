@@ -825,7 +825,9 @@
   const IMG_SIZE           = 160;    // 224 → 160: ahorra ~49% ancho de banda en cutouts
   const PADDING_FACTOR     = 2.5;
   const MIN_FOV_ARCSEC     = 86;     // FOV mínimo en pares cercanos: evita que el frame se cierre demasiado
-  const IMG_TIMEOUT_MS     = 9000;   // auto-skip si la imagen tarda más de 9 s
+  const IMG_TIMEOUT_MS     = 15000;  // auto-skip si la imagen tarda más de 15 s
+  const IMG_RETRY_DELAY_MS = 1500;   // espera entre reintento silencioso tras 429/error
+  const IMG_MAX_RETRIES    = 1;      // reintentos silenciosos antes de mostrar UI de error
   const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
   const GROUP_OFFSET       = 10_000_000;                 // same as desktop
   const MAX_GROUP_MARKERS  = 8;
@@ -1183,7 +1185,18 @@
       drawMarkers(item);
       _applyBorder(cl, item);
     };
+    let _retriesLeft = IMG_MAX_RETRIES;
     img.onerror = () => {
+      // Reintento silencioso: probable 429 transitorio del Legacy Survey.
+      if (_retriesLeft > 0) {
+        _retriesLeft--;
+        setTimeout(() => {
+          // Cache-buster para forzar nueva petición al servidor (no usar entrada rota del cache HTTP)
+          img.src = legacyUrl(item, true);
+        }, IMG_RETRY_DELAY_MS);
+        return;
+      }
+      // Reintentos agotados → mostrar UI de error
       clearTimeout(_warnTimer);
       clearTimeout(_imgTimer);       _imgTimer = null;
       clearInterval(_countdownTimer); _countdownTimer = null;
@@ -1224,6 +1237,17 @@
       }
       _prefetchCache.add(url);
       const pre = new Image();
+      let _preRetries = IMG_MAX_RETRIES;
+      pre.onerror = () => {
+        // Reintento silencioso del prefetch (típicamente 429 transitorio).
+        if (_preRetries > 0) {
+          _preRetries--;
+          setTimeout(() => { pre.src = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now(); }, IMG_RETRY_DELAY_MS);
+        } else {
+          // Si igual falla, quitamos del set para que un futuro _prefetch lo reintente.
+          _prefetchCache.delete(url);
+        }
+      };
       pre.src = url;
     }
   }
