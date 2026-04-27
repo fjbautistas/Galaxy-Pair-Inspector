@@ -1575,9 +1575,15 @@
       _baseGroups.slice(0, CALIB_GROUPS).map(g => ({...g, _calibGroup: true})),
       _seed ^ 0xCAFE
     );
-    const workGroups = (_partition.group_work_start != null)
+    let workGroups = (_partition.group_work_start != null)
       ? _baseGroups.slice(_partition.group_work_start, _partition.group_work_end)
-      : seededShuffle(_baseGroups.slice(CALIB_GROUPS), _seed ^ 0x1F2E3D);
+      : null;
+    // Fallback: si el slice asignado quedó fuera de rango (sucede cuando
+    // assign_partition asignó group_work_start mayor que la longitud real
+    // del catálogo de grupos), usar un shuffle determinístico por usuario.
+    if (!workGroups || workGroups.length === 0) {
+      workGroups = seededShuffle(_baseGroups.slice(CALIB_GROUPS), _seed ^ 0x1F2E3D);
+    }
 
     function interleave(pairs, groups, ratio = 5) {
       const out = [];
@@ -2130,11 +2136,17 @@
         seed ^ 0xCAFE
       );
       // Trabajo: bloque exclusivo por partición (group_work_start/end)
-      const workGroups = partition && partition.group_work_start != null
+      let workGroups = (partition && partition.group_work_start != null)
         ? baseGroups.slice(partition.group_work_start, partition.group_work_end)
-        : seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
+        : null;
+      // Fallback: si el slice quedó fuera del array (assign_partition asignó
+      // group_work_start mayor que la longitud real de baseGroups), usar
+      // shuffle determinístico por usuario.
+      if (!workGroups || workGroups.length === 0) {
+        workGroups = seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
+      }
 
-      // ── Intercalar: 5 pares por cada 1 grupo
+      // ── Intercalar: 5 pares por cada 1 grupo (ratio 5:1)
       function interleave(pairs, groups, ratio = 5) {
         const out = [];
         let pi = 0, gi = 0;
@@ -2144,7 +2156,7 @@
         }
         return out;
       }
-      // Catálogo final:
+      // Catálogo final (ratio 5:1 — 1 grupo por cada 5 pares):
       //   1. Calib base (intercalada con grupos calib)
       //   2. Calib suplementaria (sin grupos, secuencial) — solo si calib_v=1
       //   3. Work block (intercalado con grupos work)
