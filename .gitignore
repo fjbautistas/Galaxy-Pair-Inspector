@@ -23,6 +23,8 @@ mobile_cl_*.json
 
 # Excepciones: archivos de código de la app móvil
 !mobile/manifest.json
+!mobile/assets/
+!mobile/assets/completion-galaxy-heart.png
 
 # Excepciones: datos canónicos del pipeline (deben versionarse)
 !data/supplementary_calib_ids.json

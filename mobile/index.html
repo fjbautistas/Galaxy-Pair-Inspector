@@ -245,6 +245,30 @@
       border-radius: 2px; margin: 0 auto 18px;
     }
     .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+    .completion-sheet {
+      padding-top: 14px;
+      text-align: center;
+    }
+    .completion-art {
+      width: 100%;
+      max-height: 42vh;
+      object-fit: cover;
+      border-radius: 14px;
+      border: 1px solid #3a3a4a;
+      margin-bottom: 16px;
+      background: #111;
+    }
+    .completion-title {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .completion-copy {
+      color: #c8c8d2;
+      font-size: 14px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
 
     .stats-grid {
       display: grid; grid-template-columns: 1fr 1fr;
@@ -834,6 +858,22 @@
         <button onclick="_aliasUseRandom()" style="flex:1;padding:12px;background:#333;border:1px solid #444;border-radius:8px;color:#eee;font-size:14px;cursor:pointer">🎲 Random</button>
         <button onclick="_aliasSubmit()" style="flex:2;padding:12px;background:#43a047;border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Continue</button>
       </div>
+    </div>
+  </div>
+
+  <!-- COMPLETION MODAL -->
+  <div class="modal-back hidden" id="completionModal">
+    <div class="modal-sheet completion-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <img class="completion-art"
+           src="assets/completion-galaxy-heart.png"
+           alt="Two interacting galaxies forming a heart">
+      <div class="completion-title">Congratulations!</div>
+      <div class="completion-copy">
+        You are a pro at classifying galaxies. Thank you for your careful work
+        and for the time you gave to this project.
+      </div>
+      <button class="mbtn mbtn-primary" onclick="closeCompletionModal()">Done</button>
     </div>
   </div>
 
@@ -1481,6 +1521,11 @@
 
     saveState(true);  // inmediato al clasificar — no perder el voto si cierran la app
 
+    if (_countDone() >= catalog.length) {
+      if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
+      setTimeout(_showCompletionMessage, 250);
+    }
+
     // Hook: si el usuario acaba de completar la calibración suplementaria,
     // reclamar slice v2 (silencioso → mostrar mensaje motivacional al final).
     _maybeClaimV2Slice();
@@ -1706,7 +1751,21 @@
       const doneSet = _isCalibItem(item) ? mobileDone : allDone;
       if (!doneSet.has(k)) { showItem(idx); return; }
     }
-    if (!silent) alert('All items in the catalog have been classified! 🎉');
+    if (!silent) _showCompletionMessage();
+  }
+
+  function _showCompletionMessage() {
+    if (!catalog.length || _countDone() < catalog.length) return;
+    const key = `galpairs_completion_shown_${deviceId || 'anon'}_${catalog.length}`;
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    const modal = document.getElementById('completionModal');
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  function closeCompletionModal() {
+    const modal = document.getElementById('completionModal');
+    if (modal) modal.classList.add('hidden');
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -2078,7 +2137,7 @@
         .filter(p => !used.has(p.id_par));
       out.push(...filler.slice(0, BLOCK_SIZE - out.length));
     }
-    return out;
+    return seededShuffle(out, _seed ^ 0xC0FFEE);
   }
 
   async function getOrCreatePartition(devId) {
