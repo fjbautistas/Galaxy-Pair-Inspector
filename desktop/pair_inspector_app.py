@@ -119,9 +119,9 @@ RP_MAX_KPC = 50.0
 RP_V1_KPC  = 20.0
 CALIB_PAIRS = 120
 CALIB_GROUPS = 80
-BLOCK_SIZE = 3000
-GROUP_BLOCK_SIZE = 500
-WORK_V1_FRACTION = 0.65
+BLOCK_SIZE = 1000
+GROUP_BLOCK_SIZE = 100
+WORK_V1_FRACTION = 0.50
 
 GRID_COLS = 4
 GRID_ROWS = 2
@@ -620,22 +620,27 @@ class PairValidator:
             calib_block = (df_filtered.iloc[:calib_size]
                            .sample(frac=1, random_state=calib_seed)
                            .reset_index(drop=True))
-            v1_start = max(CALIB_PAIRS, min(work_start, self.n_pairs_v1))
-            v1_end   = max(v1_start, min(work_end, self.n_pairs_v1))
-            work_parts = [df_filtered.iloc[v1_start:v1_end].head(q_v1)]
+            if (partition.get('work_start_v2') is None
+                    and partition.get('work_end_v2') is None
+                    and work_end - work_start <= BLOCK_SIZE):
+                work_parts = [df_filtered.iloc[work_start:work_end].head(BLOCK_SIZE)]
+            else:
+                v1_start = max(CALIB_PAIRS, min(work_start, self.n_pairs_v1))
+                v1_end   = max(v1_start, min(work_end, self.n_pairs_v1))
+                work_parts = [df_filtered.iloc[v1_start:v1_end].head(q_v1)]
 
-            if partition.get('work_start_v2') is not None and partition.get('work_end_v2') is not None:
-                v2_start = int(partition.get('work_start_v2'))
-                v2_end   = int(partition.get('work_end_v2'))
-                work_parts.append(df_filtered.iloc[v2_start:v2_end].head(q_v2))
-            elif work_start >= self.n_pairs_v1:
-                work_parts.append(df_filtered.iloc[work_start:work_end].head(q_v2))
+                if partition.get('work_start_v2') is not None and partition.get('work_end_v2') is not None:
+                    v2_start = int(partition.get('work_start_v2'))
+                    v2_end   = int(partition.get('work_end_v2'))
+                    work_parts.append(df_filtered.iloc[v2_start:v2_end].head(q_v2))
+                elif work_start >= self.n_pairs_v1:
+                    work_parts.append(df_filtered.iloc[work_start:work_end].head(q_v2))
 
             work_block = pd.concat(work_parts, ignore_index=True) if work_parts else pd.DataFrame()
             self.df     = pd.concat([calib_block, work_block], ignore_index=True)
             self.work_end_local = len(calib_block) + len(work_block)  # límite en df local
             print(f'Partición: calibración={len(calib_block)} pares (seed={calib_seed}) '
-                  f'+ trabajo={len(work_block)} pares mixtos 65/35')
+                  f'+ trabajo={len(work_block)} pares')
         else:
             self.df = df_filtered
             self.work_end_local = len(df_filtered)

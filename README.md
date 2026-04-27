@@ -161,21 +161,25 @@ The current mobile flow combines pair and group inspection.
 |------|------|---------|
 | Pair calibration base | 120 pairs | Shared by all users in seeded random order. |
 | Group calibration | 80 groups | Shared by all users in seeded random order. |
-| Pair supplemental calibration | 150 pairs | Canonical `rp in [20, 50] kpc` set from `data/supplementary_calib_ids.json`. Required for users with `calib_v = 1`. |
-| Pair work block | 3,000 pairs target | Non-overlapping mixed assignment: 65% from `5 <= rp < 20 kpc` and 35% from `20 <= rp < 50 kpc`. |
-| Group work block | 500 groups | Non-overlapping group assignment. |
+| Pair supplemental calibration | 150 pairs | Canonical `rp in [20, 50] kpc` set from `data/supplementary_calib_ids.json`. Kept in the visible catalog for all users. |
+| Pair work block | 1,000 pairs target | New-user mixed assignment: 50% from `5 <= rp < 20 kpc` and 50% from `20 <= rp < 50 kpc`. Existing active users keep their historical block truncated to the first 1,000 pairs. |
+| Group work block | 100 groups | Non-overlapping group assignment for active/new partitions. |
 
-The app interleaves items roughly as 5 pairs per 1 group. Calibration items must
+The app interleaves items roughly as 10 pairs per 1 group. Calibration items must
 be classified by each user independently; work items can count existing desktop
 classifications when deciding what to skip.
 
-The `supabase/migrations/02_extend_to_50kpc.sql` migration adds the current
-two-slice logic:
+The current Supabase state is layered through migrations:
 
-- `assign_partition_mixed(...)` atomically creates or returns a mixed 65/35 device partition.
+- `02_extend_to_50kpc.sql` adds `calib_v`, `work_start_v2`, `work_end_v2`,
+  and the initial two-slice flow.
+- `05_rebalance_1000_items.sql` rebases the operational target to 1450 visible
+  items per user and changes new assignments to 1000 work pairs at 50/50.
+- `assign_partition_mixed(...)` atomically creates or returns a mixed 50/50 device partition.
 - `assign_partition(...)` remains as a legacy fallback.
 - `claim_v2_slice(...)` is called after supplemental calibration is complete and
-  assigns additional `rp in [20, 50] kpc` work.
+  closes the supplemental-calibration state without changing active truncated
+  partitions.
 - `calib_v`, `work_start_v2`, and `work_end_v2` track this state.
 
 ---

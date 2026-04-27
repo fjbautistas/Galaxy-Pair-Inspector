@@ -1559,16 +1559,18 @@
   }
 
   function _rebuildCatalogAfterV2() {
-    // Reconstruir el catálogo expulsando la calibración suplementaria del set
-    // (ya quedó clasificada y no debe seguirse considerando "calibración" para
-    //  el conteo de progreso) y añadiendo el nuevo slice v2 al work block.
+    // Reconstruir el catálogo manteniendo la calibración suplementaria visible
+    // para que el total de entrenamiento sea estable por usuario.
     if (!_partition) return;
 
     const calibBasePairs = _basePairs.slice(0, CALIB_PAIRS);
     const calibBaseIds   = calibBasePairs.map(p => p.id_par);
-    _calibIdSet = new Set(calibBaseIds);  // ya no incluye los 150 suplementarios
+    const suppCalibIds   = window._SUPP_CALIB_IDS || [];
+    _calibIdSet = new Set([...calibBaseIds, ...suppCalibIds]);
 
     const calibPairs = seededShuffle(calibBasePairs, _seed);
+    const idToPair = new Map(_basePairs.map(p => [p.id_par, p]));
+    const suppCalibPairs = suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined);
 
     const workPairs = _buildMixedWorkPairs(_partition);
 
@@ -1588,7 +1590,7 @@
                      .slice(0, GROUP_BLOCK_SIZE);
     }
 
-    function interleave(pairs, groups, ratio = 5) {
+    function interleave(pairs, groups, ratio = GROUP_INTERLEAVE_RATIO) {
       const out = [];
       let pi = 0, gi = 0;
       while (pi < pairs.length || gi < groups.length) {
@@ -1601,7 +1603,7 @@
     // Preservar la posición lógica: el item actual sigue siendo el mismo objeto
     const currentItem = catalog[currentIndex];
     catalog = [
-      ...interleave(calibPairs, calibGroups),
+      ...interleave([...calibPairs, ...suppCalibPairs], calibGroups),
       ...interleave(workPairs,  workGroups),
     ];
 
@@ -2028,9 +2030,10 @@
   const CALIB_PAIRS        = 120;   // pares de calibración (iguales para todos)
   const CALIB_GROUPS       = 80;    // grupos de calibración (iguales para todos)
   const CALIB_SIZE         = CALIB_PAIRS;
-  const BLOCK_SIZE         = 3000;
-  const GROUP_BLOCK_SIZE   = 500;
-  const WORK_V1_FRACTION   = 0.65;  // 65% rp<20, 35% rp∈[20,50)
+  const BLOCK_SIZE         = 1000;
+  const GROUP_BLOCK_SIZE   = 100;
+  const WORK_V1_FRACTION   = 0.50;  // 50% rp<20, 50% rp∈[20,50)
+  const GROUP_INTERLEAVE_RATIO = 10; // 1 grupo por cada 10 pares
 
   function _workQuotas(total = BLOCK_SIZE) {
     const v1 = Math.round(total * WORK_V1_FRACTION);
@@ -2041,6 +2044,16 @@
     if (!partition) {
       return seededShuffle(_basePairs.slice(CALIB_PAIRS), _seed ^ 0xA5F3)
         .slice(0, BLOCK_SIZE);
+    }
+
+    // Particiones activas rebalanceadas: se conserva el primer bloque histórico
+    // recortado a 1000 pares cuando no existe slice v2 explícito.
+    if (partition.work_start_v2 == null && partition.work_end_v2 == null) {
+      const start = Math.max(CALIB_PAIRS, partition.work_start || CALIB_PAIRS);
+      const end   = Math.max(start, partition.work_end || start);
+      if (end - start <= BLOCK_SIZE) {
+        return _basePairs.slice(start, end).slice(0, BLOCK_SIZE);
+      }
     }
 
     const nV1 = ((window._CATALOG && window._CATALOG.n_pairs_v1) || 31976);
@@ -2079,7 +2092,7 @@
       'Content-Type':  'application/json',
     };
 
-    // Llamar a la función RPC mixta: asigna 65% rp<20 y 35% rp∈[20,50).
+    // Llamar a la función RPC mixta: asigna 50% rp<20 y 50% rp∈[20,50).
     try {
       const r = await fetch(`${url}/rest/v1/rpc/assign_partition_mixed`, {
         method:  'POST',
@@ -2201,26 +2214,22 @@
       const calibBasePairs = basePairs.slice(0, CALIB_PAIRS);
       const calibBaseIds   = calibBasePairs.map(p => p.id_par);
       const suppCalibIds   = window._SUPP_CALIB_IDS || [];
-      const calibV         = (partition && partition.calib_v != null) ? partition.calib_v : 1;
-      const needsSupp      = (calibV === 1 && suppCalibIds.length > 0);
 
-      // Set de ids considerados "de calibración" para este usuario
+      // Set de ids considerados "de calibración" para este usuario.
+      // Incluye siempre la calibración suplementaria para mantener 1450 ítems.
       _calibIdSet = new Set([
         ...calibBaseIds,
-        ...(needsSupp ? suppCalibIds : []),
+        ...suppCalibIds,
       ]);
 
       // 1) Calibración base: 120 pares, orden seeded (igual que antes)
       const calibPairs = seededShuffle(calibBasePairs, seed);
 
-      // 2) Calibración suplementaria: 150 pares, orden SECUENCIAL (lista canónica),
-      //    solo si el usuario aún no la completó
+      // 2) Calibración suplementaria: 150 pares, orden SECUENCIAL (lista canónica).
       const idToPair = new Map(basePairs.map(p => [p.id_par, p]));
-      const suppCalibPairs = needsSupp
-        ? suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined)
-        : [];
+      const suppCalibPairs = suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined);
 
-      // 3) Work pairs: objetivo 3000 pares, 65% rp<20 y 35% rp∈[20,50).
+      // 3) Work pairs: objetivo 1000 pares, 50% rp<20 y 50% rp∈[20,50).
       const workPairs = _buildMixedWorkPairs(partition);
 
       // ── Grupos: calibración (primeros CALIB_GROUPS, mismos para todos, orden distinto)
@@ -2240,8 +2249,8 @@
                        .slice(0, GROUP_BLOCK_SIZE);
       }
 
-      // ── Intercalar: 5 pares por cada 1 grupo (ratio 5:1)
-      function interleave(pairs, groups, ratio = 5) {
+      // ── Intercalar: 10 pares por cada 1 grupo (ratio 10:1)
+      function interleave(pairs, groups, ratio = GROUP_INTERLEAVE_RATIO) {
         const out = [];
         let pi = 0, gi = 0;
         while (pi < pairs.length || gi < groups.length) {
@@ -2250,9 +2259,9 @@
         }
         return out;
       }
-      // Catálogo final (ratio 5:1 — 1 grupo por cada 5 pares):
+      // Catálogo final (ratio 10:1 — 1 grupo por cada 10 pares):
       //   1. Calibración completa de pares (base + suplementaria), intercalada con grupos calib
-      //   2. Work block mixto 65/35, intercalado con grupos work
+      //   2. Work block mixto 50/50, intercalado con grupos work
       catalog = [
         ...interleave([...calibPairs, ...suppCalibPairs], calibGroups),
         ...interleave(workPairs,  workGroups),

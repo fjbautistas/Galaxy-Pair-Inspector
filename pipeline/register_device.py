@@ -18,8 +18,8 @@ Requiere: .env en la raíz del proyecto con SUPABASE_URL y SUPABASE_SERVICE_ROLE
 Constantes del catálogo:
     CALIB_PAIRS      = 120   primeros N pares del catálogo, pool de calibración compartido
     CALIB_GROUPS     = 80    primeros N grupos del catálogo, pool de calibración compartido
-    BLOCK_SIZE       = 3000  pares de trabajo asignados por dispositivo
-    GROUP_BLOCK_SIZE = 500   grupos de trabajo asignados por dispositivo
+    BLOCK_SIZE       = 1000  pares de trabajo asignados por dispositivo
+    GROUP_BLOCK_SIZE = 100   grupos de trabajo asignados por dispositivo
     catalog_len      = leído dinámicamente desde la ruta PAIRS_CATALOG en .env
 """
 
@@ -55,10 +55,10 @@ CATALOG_PATH     = _env.get('PAIRS_CATALOG', '')
 CALIB_PAIRS        = 120     # pares de calibración compartidos por todos los usuarios
 CALIB_GROUPS       = 80      # grupos de calibración compartidos por todos los usuarios
 CALIB_SIZE         = CALIB_PAIRS   # alias: work_start del primer dispositivo
-BLOCK_SIZE         = 3_000
-GROUP_BLOCK_SIZE   = 500     # grupos de trabajo por dispositivo
+BLOCK_SIZE         = 1_000
+GROUP_BLOCK_SIZE   = 100     # grupos de trabajo por dispositivo
 RP_V1_KPC          = 20.0
-WORK_V1_FRACTION   = 0.65
+WORK_V1_FRACTION   = 0.50
 
 # ── Helpers REST ──────────────────────────────────────────────────────────────
 def _headers():
@@ -104,6 +104,19 @@ def _insert_partition(device_id: str, calib_seed: int,
         pass
 
 
+def _first_free_interval(occupied: list[tuple[int, int]], start: int, stop: int, size: int) -> int:
+    """Return the first aligned free interval start in [start, stop)."""
+    cur = start
+    intervals = sorted((max(start, a), min(stop, b)) for a, b in occupied if b > start and a < stop)
+    while cur + size <= stop:
+        end = cur + size
+        overlap = next(((a, b) for a, b in intervals if cur < b and end > a), None)
+        if overlap is None:
+            return cur
+        cur = overlap[1]
+    raise RuntimeError(f'No queda un intervalo libre de {size} items entre {start} y {stop}.')
+
+
 # ── Lógica principal ──────────────────────────────────────────────────────────
 def register(device_id: str) -> dict:
     """
@@ -121,39 +134,34 @@ def register(device_id: str) -> dict:
     if existing:
         return {'status': 'existing', 'partition': existing}
 
-    # Calcular siguientes bloques disponibles por zona.
-    if partitions:
-        max_v1_end = max(
-            [min(int(p.get('work_end', CALIB_SIZE)), n_v1)
-             for p in partitions if int(p.get('work_start', 0)) < n_v1] or [CALIB_SIZE]
-        )
-        max_v2_end = max(
-            [int(p.get('work_end_v2')) for p in partitions if p.get('work_end_v2') is not None] +
-            [int(p.get('work_end')) for p in partitions if int(p.get('work_start', 0)) >= n_v1] +
-            [n_v1]
-        )
-    else:
-        max_v1_end = CALIB_SIZE
-        max_v2_end = n_v1
+    # Calcular primeros huecos disponibles por zona, reutilizando espacios de
+    # particiones inactivas eliminadas en Supabase.
+    occupied_v1 = [
+        (int(p.get('work_start', CALIB_SIZE)), min(int(p.get('work_end', CALIB_SIZE)), n_v1))
+        for p in partitions
+        if int(p.get('work_start', 0)) < n_v1
+    ]
+    occupied_v2 = [
+        (int(p.get('work_start_v2')), int(p.get('work_end_v2')))
+        for p in partitions
+        if p.get('work_start_v2') is not None and p.get('work_end_v2') is not None
+    ] + [
+        (int(p.get('work_start')), int(p.get('work_end')))
+        for p in partitions
+        if int(p.get('work_start', 0)) >= n_v1
+    ]
 
-    work_start = max_v1_end
-    work_end   = min(work_start + q_v1, n_v1)
-    work_start_v2 = max_v2_end
-    work_end_v2   = min(work_start_v2 + q_v2, catalog_len)
-
-    if work_end <= work_start:
-        work_start = n_v1
-        work_end = n_v1
-        work_end_v2 = min(work_start_v2 + BLOCK_SIZE, catalog_len)
-
-    if work_start_v2 >= catalog_len and work_start >= n_v1:
-        raise RuntimeError(
-            f'Catálogo agotado: todos los {catalog_len:,} pares ya están asignados.'
-        )
+    work_start    = _first_free_interval(occupied_v1, CALIB_SIZE, n_v1, q_v1)
+    work_end      = work_start + q_v1
+    work_start_v2 = _first_free_interval(occupied_v2, n_v1, catalog_len, q_v2)
+    work_end_v2   = work_start_v2 + q_v2
 
     # Calcular siguiente bloque de grupos disponible
     if partitions:
-        max_group_end = max(p.get('group_work_end', CALIB_GROUPS) for p in partitions)
+        max_group_end = max(
+            [int(p.get('group_work_end')) for p in partitions if p.get('group_work_end') is not None]
+            or [CALIB_GROUPS]
+        )
     else:
         max_group_end = CALIB_GROUPS
 
@@ -190,7 +198,7 @@ def print_summary(result: dict) -> None:
     print(f'\n── Dispositivo: {p["device_id"]}  [{status}] ──────────────────')
     print(f'  Pool calibración  : {CALIB_PAIRS} pares (0–{CALIB_PAIRS-1}) '
           f'+ {CALIB_GROUPS} grupos (0–{CALIB_GROUPS-1}) '
-          f'= 200 ítems, seed={p["calib_seed"]}')
+          f'= 200 ítems base (+150 pares suplementarios en mobile), seed={p["calib_seed"]}')
     print(f'  Bloque pares      : índices {p["work_start"]}–{p["work_end"] - 1} '
           f'({n_pairs:,} pares rp<20)')
     if p.get('work_start_v2') is not None and p.get('work_end_v2') is not None:
