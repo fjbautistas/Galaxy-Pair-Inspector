@@ -923,11 +923,7 @@
   function getCl(item) {
     const k = itemKey(item);
     if (classifications[k]) return classifications[k];
-    // Para items de calibración el usuario DEBE re-votar en mobile,
-    // así que las clasificaciones de desktop no cuentan como "ya hecho".
-    // Esto alinea el badge y el highlight de botón con skipToUnclassified().
-    if (_isCalibItem(item)) return null;
-    return (isGroup(item) ? null : desktopCl[k]) || null;
+    return null;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1434,8 +1430,6 @@
       const k = String(item.id_par);
       // "(desktop)" solo si el badge se va a mostrar — no en items de calibración,
       // donde el usuario debe re-votar y el desktop no cuenta.
-      const fromDesktop = desktopCl[k] && !classifications[k] && !_isCalibItem(item)
-        ? ' <span style="color:#666">(desktop)</span>' : '';
       infoHTML = `
         <div class="info-row" style="font-size:11px">
           <span style="color:#ff7a6a">G1 &nbsp;RA <strong>${item.ra1.toFixed(4)}</strong>
@@ -1455,7 +1449,7 @@
                <span style="color:#4488cc">&#128101; Grupo <strong>#${item.fof_component_id}</strong> &mdash; N=<strong>${item.component_size}</strong></span>
              </div>`
           : ''}
-        ${_badge(cl, false)}${fromDesktop}`;
+        ${_badge(cl, false)}`;
     }
 
     document.getElementById('pairHeader').innerHTML = headerHTML;
@@ -1723,12 +1717,7 @@
   }
 
   function _countDone() {
-    // Calibración: solo cuenta votos del propio móvil
-    // Trabajo: cuenta votos móvil + desktop
-    return catalog.filter(it => {
-      const k = itemKey(it);
-      return classifications[k] || (!_isCalibItem(it) && desktopCl[k]);
-    }).length;
+    return catalog.filter(it => classifications[itemKey(it)]).length;
   }
 
   function _isCalibItem(item) {
@@ -1742,14 +1731,11 @@
   function skipToUnclassified(silent = false) {
     if (!catalog.length) return;
     const mobileDone = new Set(Object.keys(classifications));
-    const allDone    = new Set([...mobileDone, ...Object.keys(desktopCl)]);
     for (let i = 1; i <= catalog.length; i++) {
       const idx  = (currentIndex + i) % catalog.length;
       const item = catalog[idx];
       const k    = itemKey(item);
-      // Los ítems de calibración deben ser vistos por TODOS aunque desktop los haya clasificado
-      const doneSet = _isCalibItem(item) ? mobileDone : allDone;
-      if (!doneSet.has(k)) { showItem(idx); return; }
+      if (!mobileDone.has(k)) { showItem(idx); return; }
     }
     if (!silent) _showCompletionMessage();
   }
@@ -1906,8 +1892,10 @@
   // ═══════════════════════════════════════════════════════════════════════
   function openModal(name) {
     if (name === 'stats') {
-      const allCl = { ...desktopCl, ...classifications };  // mobile overrides desktop
-      const count = cl => Object.values(allCl).filter(v => v === cl).length;
+      const visibleUserCl = catalog
+        .map(item => classifications[itemKey(item)])
+        .filter(Boolean);
+      const count = cl => visibleUserCl.filter(v => v === cl).length;
       const fp    = count('FP');
       const pair  = count('Pair');
       const group = count('GROUP');
@@ -1915,13 +1903,12 @@
       const pp    = count('PP');
       const total = fp + pair + group + pm + pp;
       const pct   = catalog.length ? (total / catalog.length * 100).toFixed(1) : 0;
-      const mob   = Object.keys(classifications).length;
       document.getElementById('sFP').textContent    = fp;
       document.getElementById('sPair').textContent  = pair;
       document.getElementById('sGroup').textContent = group;
       document.getElementById('sPM').textContent    = pm;
       document.getElementById('sTotal').textContent =
-        `Total: ${total} / ${catalog.length} (${pct}%) — this device: ${mob}`;
+        `This device: ${total} / ${catalog.length} (${pct}%)`;
       document.getElementById('sDevice').textContent =
         `Device ID: ${deviceId || '—'}  (included in exported JSON)`;
     }
@@ -2332,10 +2319,8 @@
       // Si el ítem actual ya fue clasificado (ej. después de reset de partición),
       // saltar al próximo sin clasificar para no confundir al usuario
       const _mobileDone = new Set(Object.keys(classifications));
-      const _allDone    = new Set([...Object.keys(classifications), ...Object.keys(desktopCl)]);
-      const _initDoneFor = item => _isCalibItem(item) ? _mobileDone : _allDone;
-      if (_initDoneFor(catalog[currentIndex]).has(itemKey(catalog[currentIndex]))) {
-        const _next = catalog.findIndex(item => !_initDoneFor(item).has(itemKey(item)));
+      if (_mobileDone.has(itemKey(catalog[currentIndex]))) {
+        const _next = catalog.findIndex(item => !_mobileDone.has(itemKey(item)));
         if (_next !== -1) currentIndex = _next;
       }
       showItem(currentIndex);
