@@ -882,7 +882,12 @@
   function itemKey(item)  { return isGroup(item) ? 'g_' + item.group_id : String(item.id_par); }
   function getCl(item) {
     const k = itemKey(item);
-    return classifications[k] || (isGroup(item) ? null : desktopCl[k]) || null;
+    if (classifications[k]) return classifications[k];
+    // Para items de calibración el usuario DEBE re-votar en mobile,
+    // así que las clasificaciones de desktop no cuentan como "ya hecho".
+    // Esto alinea el badge y el highlight de botón con skipToUnclassified().
+    if (_isCalibItem(item)) return null;
+    return (isGroup(item) ? null : desktopCl[k]) || null;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1381,7 +1386,9 @@
           <span>sep: <strong>${sep}</strong></span>
         </div>`;
       const k = String(item.id_par);
-      const fromDesktop = desktopCl[k] && !classifications[k]
+      // "(desktop)" solo si el badge se va a mostrar — no en items de calibración,
+      // donde el usuario debe re-votar y el desktop no cuenta.
+      const fromDesktop = desktopCl[k] && !classifications[k] && !_isCalibItem(item)
         ? ' <span style="color:#666">(desktop)</span>' : '';
       infoHTML = `
         <div class="info-row" style="font-size:11px">
