@@ -255,8 +255,13 @@
       object-fit: cover;
       border-radius: 14px;
       border: 1px solid #3a3a4a;
-      margin-bottom: 16px;
+      margin-bottom: 6px;
       background: #111;
+    }
+    .completion-credit {
+      color: #777;
+      font-size: 11px;
+      margin-bottom: 14px;
     }
     .completion-title {
       font-size: 22px;
@@ -868,6 +873,7 @@
       <img class="completion-art"
            src="assets/completion-galaxy-heart.png"
            alt="Two interacting galaxies forming a heart">
+      <div class="completion-credit">Image generated with AI using OpenAI image generation.</div>
       <div class="completion-title">Congratulations!</div>
       <div class="completion-copy">
         You are a pro at classifying galaxies. Thank you for your careful work
@@ -885,9 +891,9 @@
   const IMG_SIZE           = 160;    // 224 → 160: ahorra ~49% ancho de banda en cutouts
   const PADDING_FACTOR     = 2.5;
   const MIN_FOV_ARCSEC     = 86;     // FOV mínimo en pares cercanos: evita que el frame se cierre demasiado
-  const IMG_TIMEOUT_MS     = 15000;  // auto-skip si la imagen tarda más de 15 s
+  const IMG_TIMEOUT_MS     = 22000;  // mostrar acciones si Legacy Survey tarda demasiado
   const IMG_RETRY_DELAY_MS = 1500;   // espera entre reintento silencioso tras 429/error
-  const IMG_MAX_RETRIES    = 1;      // reintentos silenciosos antes de mostrar UI de error
+  const IMG_MAX_RETRIES    = 2;      // reintentos silenciosos antes de mostrar UI de error
   const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
   const GROUP_OFFSET       = 10_000_000;                 // same as desktop
   const MAX_GROUP_MARKERS  = 8;
@@ -1283,7 +1289,7 @@
     if (_imgTimer)       { clearTimeout(_imgTimer);   _imgTimer = null; }
     if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
 
-    // Countdown visible — aparece a los 3s, cuenta regresiva hasta 0 y salta
+    // Countdown visible — aparece a los 3s, cuenta regresiva hasta acciones manuales.
     const WARN_AFTER_MS = 3000;
     const countdownSecs = Math.round((IMG_TIMEOUT_MS - WARN_AFTER_MS) / 1000);
     let _remaining = countdownSecs;
@@ -1305,7 +1311,7 @@
       clearTimeout(_warnTimer);
       clearInterval(_countdownTimer); _countdownTimer = null;
       img.src = '';
-      skipToUnclassified(true);
+      _showImageError('Image is taking too long', 'Legacy Survey did not return this cutout in time.');
     }, IMG_TIMEOUT_MS);
 
     img.onload = () => {
@@ -1325,20 +1331,14 @@
         setTimeout(() => {
           // Cache-buster para forzar nueva petición al servidor (no usar entrada rota del cache HTTP)
           img.src = legacyUrl(item, true);
-        }, IMG_RETRY_DELAY_MS);
+        }, IMG_RETRY_DELAY_MS * (IMG_MAX_RETRIES - _retriesLeft));
         return;
       }
       // Reintentos agotados → mostrar UI de error
       clearTimeout(_warnTimer);
       clearTimeout(_imgTimer);       _imgTimer = null;
       clearInterval(_countdownTimer); _countdownTimer = null;
-      overlay.style.display = 'flex';
-      overlay.innerHTML = `
-        <div class="err-state">
-          <div class="err-icon">⚠️</div>
-          <div>Error descargando imagen</div>
-          <button class="retry-btn" onclick="retryImage()">↻ Reintentar</button>
-        </div>`;
+      _showImageError('Image download failed', 'The cutout server may be busy or rate-limiting requests.');
     };
     img.src = legacyUrl(item);
 
@@ -1350,13 +1350,13 @@
 
   // LRU prefetch cache — máximo 20 entradas para no saturar memoria
   const _prefetchCache = new Set();
-  const MAX_PREFETCH_CACHE = 20;
+  const MAX_PREFETCH_CACHE = 12;
 
   function _prefetch(currentIdx) {
-    // Ventana adaptativa: 6 en 4G/WiFi, 3 en conexión lenta o desconocida
+    // Ventana adaptativa conservadora para no provocar rate limits en Legacy Survey.
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     const fast = conn ? ['4g', 'wifi'].includes(conn.effectiveType) : false;
-    const window_ = fast ? 6 : 3;
+    const window_ = fast ? 3 : 1;
 
     for (let d = 1; d <= window_; d++) {
       const ni = currentIdx + d;
@@ -1762,6 +1762,27 @@
     window.open(skyViewerUrl(catalog[currentIndex]), '_blank');
   }
 
+  function _showImageError(title = 'Image unavailable', detail = '') {
+    const overlay = document.getElementById('spinnerOverlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `
+      <div class="err-state">
+        <div class="err-icon">⚠️</div>
+        <div>${title}</div>
+        <div style="font-size:12px;color:#888;margin-top:6px;line-height:1.35">${detail}</div>
+        <button class="retry-btn" onclick="retryImage()">↻ Retry cutout</button>
+        <button class="retry-btn" onclick="openSkyViewer()">Open Sky Viewer</button>
+        <button class="retry-btn" onclick="skipImageOnly()">Skip for now</button>
+      </div>`;
+  }
+
+  function skipImageOnly() {
+    if (!catalog.length) return;
+    const next = Math.min(currentIndex + 1, catalog.length - 1);
+    if (next !== currentIndex) showItem(next);
+  }
+
   function retryImage() {
     // Cancelar timers pendientes antes de reintentar
     if (_imgTimer)       { clearTimeout(_imgTimer);    _imgTimer = null; }
@@ -1861,6 +1882,27 @@
     let offset = 0;
 
     try {
+      const rpcResp = await fetch(`${url}/rest/v1/rpc/get_device_classifications`, {
+        method: 'POST',
+        headers: {
+          'apikey': key,
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_device_id: devId }),
+      });
+      if (rpcResp.ok) {
+        const rows = await rpcResp.json();
+        rows.forEach(r => {
+          const id = Number(r.id_par);
+          const k = id >= GROUP_OFFSET ? `g_${id - GROUP_OFFSET}` : String(id);
+          cloud[k] = r.classification;
+        });
+        classifications = { ...cloud, ...classifications };
+        saveState(true);
+        return;
+      }
+
       while (true) {
         const resp = await fetch(
           `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(devId)}` +
@@ -1944,20 +1986,71 @@
     const key = window._SUPABASE_ANON_KEY;
     if (!url || !key) return;
     _setSyncDot('saving');
-    fetch(`${url}/rest/v1/clasificaciones`, {
+    fetch(`${url}/rest/v1/rpc/upsert_classification`, {
       method: 'POST',
       headers: {
         'apikey': key, 'Authorization': `Bearer ${key}`,
         'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates,return=minimal'
       },
-      body: JSON.stringify([{
-        device_id: deviceId, id_par: _supabaseIdPar(item),
-        classification, exported_at: new Date().toISOString()
-      }])
+      body: JSON.stringify({
+        p_device_id: deviceId,
+        p_id_par: _supabaseIdPar(item),
+        p_classification: classification,
+        p_exported_at: new Date().toISOString(),
+      }),
     })
-    .then(r => _setSyncDot(r.ok ? 'ok' : 'error'))
+    .then(r => {
+      if (r.ok) {
+        _setSyncDot('ok');
+        return null;
+      }
+      // Fallback para instancias Supabase que aún no tengan la RPC aplicada.
+      return fetch(`${url}/rest/v1/clasificaciones`, {
+        method: 'POST',
+        headers: {
+          'apikey': key, 'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify([{
+          device_id: deviceId, id_par: _supabaseIdPar(item),
+          classification, exported_at: new Date().toISOString()
+        }])
+      }).then(fallback => _setSyncDot(fallback.ok ? 'ok' : 'error'));
+    })
     .catch(() => _setSyncDot('error'));
+  }
+
+  function _deleteFromCloud(item) {
+    const url = window._SUPABASE_URL;
+    const key = window._SUPABASE_ANON_KEY;
+    if (!url || !key) return;
+    fetch(`${url}/rest/v1/rpc/delete_classification`, {
+      method: 'POST',
+      headers: {
+        'apikey': key, 'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        p_device_id: deviceId,
+        p_id_par: _supabaseIdPar(item),
+      })
+    })
+    .then(r => {
+      if (r.ok) return null;
+      return fetch(
+        `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(deviceId)}` +
+        `&id_par=eq.${_supabaseIdPar(item)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'apikey': key,
+            'Authorization': `Bearer ${key}`,
+          },
+        }
+      ).catch(() => {});
+    })
+    .catch(() => {});
   }
 
   async function syncToCloud() {
@@ -1997,7 +2090,18 @@
     });
 
     try {
-      const resp = await fetch(`${url}/rest/v1/clasificaciones`, {
+      let resp = await fetch(`${url}/rest/v1/rpc/upsert_classifications`, {
+        method: 'POST',
+        headers: {
+          'apikey': key, 'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_rows: rows })
+      });
+
+      if (!resp.ok) {
+        // Fallback para instancias Supabase que aún no tengan la RPC aplicada.
+        resp = await fetch(`${url}/rest/v1/clasificaciones`, {
         method: 'POST',
         headers: {
           'apikey': key, 'Authorization': `Bearer ${key}`,
@@ -2005,7 +2109,8 @@
           'Prefer': 'resolution=merge-duplicates,return=minimal'
         },
         body: JSON.stringify(rows)
-      });
+        });
+      }
       if (resp.ok || resp.status === 201 || resp.status === 204) {
         statusEl.style.color = '#a5d6a7';
         statusEl.textContent = `✓ ${entries.length} classifications synced.`;
@@ -2032,6 +2137,7 @@
   function _cancelCloud(item) {
     const k = itemKey(item);
     if (_cloudTimers[k]) { clearTimeout(_cloudTimers[k]); delete _cloudTimers[k]; }
+    _deleteFromCloud(item);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
