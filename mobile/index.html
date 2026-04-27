@@ -59,9 +59,11 @@
     .hdr-counter {
       flex: 1;
       text-align: center;
-      font-size: 14px;
+      font-size: clamp(11px, 3.2vw, 14px);
       color: var(--muted);
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      min-width: 0;
     }
     .hdr-btn {
       background: #333;
@@ -385,7 +387,7 @@
   <!-- HEADER -->
   <header>
     <div class="hdr-title">🌌 GalPairs</div>
-    <div class="hdr-counter" id="ctrText">— / —</div>
+    <div class="hdr-counter" id="ctrText">Item — / —</div>
     <span id="syncDot" title="Cloud sync status"
           style="width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin:0 4px;flex-shrink:0"></span>
     <button class="hdr-btn" onclick="openTutorial()" title="Tutorial">?</button>
@@ -1269,7 +1271,7 @@
     const item = catalog[idx];
     const cl   = getCl(item);
 
-    document.getElementById('ctrText').textContent = `${idx + 1} / ${catalog.length}`;
+    document.getElementById('ctrText').textContent = `Item ${idx + 1} / ${catalog.length}`;
 
     document.getElementById('progFill').style.width = `${(_countDone() / catalog.length * 100).toFixed(2)}%`;
 
