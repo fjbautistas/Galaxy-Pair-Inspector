@@ -1804,6 +1804,42 @@
     } catch(e) {}
   }
 
+  async function loadCloudStateForDevice(devId) {
+    const url = window._SUPABASE_URL;
+    const key = window._SUPABASE_ANON_KEY;
+    if (!url || !key || !devId) return;
+
+    const cloud = {};
+    const limit = 1000;
+    let offset = 0;
+
+    try {
+      while (true) {
+        const resp = await fetch(
+          `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(devId)}` +
+          `&select=id_par,classification&limit=${limit}&offset=${offset}`,
+          {
+            headers: {
+              'apikey': key,
+              'Authorization': `Bearer ${key}`,
+            },
+          }
+        );
+        if (!resp.ok) return;
+        const rows = await resp.json();
+        rows.forEach(r => {
+          const id = Number(r.id_par);
+          const k = id >= GROUP_OFFSET ? `g_${id - GROUP_OFFSET}` : String(id);
+          cloud[k] = r.classification;
+        });
+        if (rows.length < limit) break;
+        offset += limit;
+      }
+      classifications = { ...cloud, ...classifications };
+      saveState(true);
+    } catch (_) {}
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // MODALS
   // ═══════════════════════════════════════════════════════════════════════
@@ -2148,6 +2184,7 @@
       const baseGroups = data.groups || [];
       desktopCl = data.desktop_classified || {};
       deviceId  = await getOrCreateDeviceId();
+      await loadCloudStateForDevice(deviceId);
 
       // ── Obtener/crear partición desde Supabase ───────────────────────
       const partition = await getOrCreatePartition(deviceId);
