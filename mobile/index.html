@@ -894,6 +894,12 @@
   // DEVICE ID — generado una vez y guardado en localStorage
   // ═══════════════════════════════════════════════════════════════════════
   async function getOrCreateDeviceId() {
+    const recovered = (window.location.hash || '').replace(/^#/, '').trim().toUpperCase();
+    if (/^[A-Z0-9_]{3,20}$/.test(recovered)) {
+      localStorage.setItem('galpairs_device_id', recovered);
+      return recovered;
+    }
+
     let id = localStorage.getItem('galpairs_device_id');
     if (id) return id;  // usuario existente — comportamiento actual, sin fricción
     // Usuario nuevo: pedir nickname (con opción "random")
