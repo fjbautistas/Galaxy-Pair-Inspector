@@ -1580,9 +1580,11 @@
       : null;
     // Fallback: si el slice asignado quedó fuera de rango (sucede cuando
     // assign_partition asignó group_work_start mayor que la longitud real
-    // del catálogo de grupos), usar un shuffle determinístico por usuario.
+    // del catálogo de grupos), usar shuffle determinístico LIMITADO a
+    // GROUP_BLOCK_SIZE — sin .slice() el catálogo se infla con todos los grupos.
     if (!workGroups || workGroups.length === 0) {
-      workGroups = seededShuffle(_baseGroups.slice(CALIB_GROUPS), _seed ^ 0x1F2E3D);
+      workGroups = seededShuffle(_baseGroups.slice(CALIB_GROUPS), _seed ^ 0x1F2E3D)
+                     .slice(0, GROUP_BLOCK_SIZE);
     }
 
     function interleave(pairs, groups, ratio = 5) {
@@ -2139,11 +2141,12 @@
       let workGroups = (partition && partition.group_work_start != null)
         ? baseGroups.slice(partition.group_work_start, partition.group_work_end)
         : null;
-      // Fallback: si el slice quedó fuera del array (assign_partition asignó
-      // group_work_start mayor que la longitud real de baseGroups), usar
-      // shuffle determinístico por usuario.
+      // Fallback: si el slice quedó fuera del array, usar shuffle determinístico
+      // LIMITADO a GROUP_BLOCK_SIZE — sin .slice() el catálogo se infla con
+      // todos los grupos disponibles (~3700) en vez de los ~500 esperados.
       if (!workGroups || workGroups.length === 0) {
-        workGroups = seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D);
+        workGroups = seededShuffle(baseGroups.slice(CALIB_GROUPS), seed ^ 0x1F2E3D)
+                       .slice(0, GROUP_BLOCK_SIZE);
       }
 
       // ── Intercalar: 5 pares por cada 1 grupo (ratio 5:1)
