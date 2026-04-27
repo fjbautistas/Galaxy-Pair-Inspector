@@ -1,205 +1,226 @@
 # Galaxy Pair Inspector
-Visual classification tool for galaxy pairs from the DESI Legacy Survey.
-The goal is to build a labeled dataset to train a galaxy pair classifier.
+
+Visual inspection tool for DESI galaxy pairs and FoF groups using DESI Legacy
+Survey DR10 cutouts. The goal is to build a curated labeled dataset for
+training and validating a morphological classifier of interacting systems,
+false positives, mergers, and compact groups.
 
 **Author:** Frank Bautista
----
-
-## What it does
-
-Given a catalog of galaxy pairs, the tool shows cutout images from the Legacy Survey and asks the user to assign one of three labels:
-
-- **Pair** — confirmed interacting pair
-- **FP** — false positive, not a real pair
-- **PM** — possible merger
-
-Classifications go to a Supabase database. Multiple classifiers can work independently on different subsets of the catalog without overlap.
 
 ---
 
-## Repository structure
+## Current Scope
 
-```
+The repository contains the inspection layer around an external pair-finding
+pipeline. It does not generate the original DESI pair catalog; it serves,
+partitions, visualizes, records, exports, and analyzes human classifications.
+
+The app supports two object types:
+
+- **Pairs** from `PAIRS_CATALOG`, currently used out to `rp < 50 kpc`.
+- **Groups** from a FoF edge catalog, configured through `GROUPS_CATALOG`.
+
+Classifications are saved locally and, when configured, upserted to Supabase.
+Multiple classifiers can work in parallel on non-overlapping work blocks while
+sharing calibration items for inter-rater agreement checks.
+
+---
+
+## Classification Labels
+
+### Pairs
+
+| Label | Meaning |
+|------|---------|
+| `FP` | False positive. Usually projection or Legacy Survey deblending where the markers do not indicate two real galaxies. |
+| `Pair` | Confirmed pair. Two separate galactic centers are visible and plausibly interacting. |
+| `PM` | Possible merger. Two nuclei or disturbed components inside a shared envelope; centers may be hard to separate. |
+
+### Groups
+
+Groups are stored in Supabase as `group_id + 10_000_000` to avoid collisions
+with pair `id_par` values.
+
+| Label | Meaning |
+|------|---------|
+| `FP` | False group, projection, or severe deblending artifact. |
+| `GROUP` | Confirmed physical group with 3 or more associated galaxies. |
+| `PM` | Possible merger or ambiguous compact interacting system. |
+| `PP` | Possible pair inside a group, or group catalog entry where the visual evidence supports a pair but not a full group. |
+
+---
+
+## Repository Structure
+
+```text
 Galaxy-Pair-Inspector/
-  mobile/         PWA — runs on any phone via GitHub Pages
-  desktop/        Tkinter app + exploratory notebook
-  pipeline/       Export, device registration, image upload, label generation
+  index.html                         GitHub Pages redirect to the mobile app
+  mobile/
+    index.html                       PWA source/template
+    GalPairs.html                    Generated standalone app for GitHub Pages
+    sw.js                            Service worker for Legacy Survey image cache
+    manifest.json                    PWA manifest
+  desktop/
+    pair_inspector_app.py            Tkinter inspection app
+    GalaxyPairInspector.ipynb        Original exploratory notebook
+  pipeline/
+    export_standalone.py             Builds mobile/GalPairs.html
+    register_device.py               Manual device registration for desktop
+    generate_labels.py               Majority-vote label export from Supabase
+    migrate_to_v3.py                 Translate old labels to v3 ids by TARGETID pair
+    generate_and_upload_images.py    Download classified cutouts and upload to Drive
+    download_from_cloud.py           Export Supabase rows as JSON backup
+    identify_users.py                Summarize device activity
+    plot_*.py                        Diagnostic plots
+  supabase/migrations/
+    02_extend_to_50kpc.sql           RPCs and fields for rp<50 two-slice flow
   data/
-    DESI_galaxies_base.parquet   All DESI sources, cleaned
-    DESI_galaxies_phys.parquet   Physical properties
-    raw/                         Pair catalogs and intermediate outputs
+    supplementary_calib_ids.json     Canonical supplemental calibration pair IDs
   outputs/
-    catalogs/                    Classification results and progress files
-  index.html      GitHub Pages entry point
+    catalogs/                        Local progress and generated label CSVs
+    *_images/                        Saved clean cutouts by class
 ```
+
+Most data, image, CSV, JSON, and Parquet outputs are ignored by Git. The
+canonical exception currently versioned is `data/supplementary_calib_ids.json`.
 
 ---
 
 ## Setup
 
-### 1. Create `.env` in the project root
+Create `.env` in the project root:
 
-```
+```bash
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-PAIRS_CATALOG=data/raw/DESI_int_legacyID_pairs.parquet
+PAIRS_CATALOG=data/DESI_v3_pairs.parquet
+GROUPS_CATALOG=data/DESI_v3_groups.parquet
 ```
 
-`PAIRS_CATALOG` is the only place you need to change if you rename or replace the pair catalog. All scripts read from this variable.
-
-`.env` is in `.gitignore` and will never be committed.
-
-### 2. Install dependencies
+Install Python dependencies:
 
 ```bash
 pip install pandas numpy pillow requests pyarrow
 pip install google-auth google-auth-httplib2 google-api-python-client
 ```
 
-`tkinter` comes with Python on macOS and Linux. On Linux you may also need:
+`tkinter` is included with most Python installs on macOS. On Linux you may need:
+
 ```bash
 sudo apt-get install python3-tk
 ```
 
 ---
 
-## Usage
+## Running The Apps
 
-### Desktop app
+### Mobile PWA
+
+Open:
+
+[https://fjbautistas.github.io/Galaxy-Pair-Inspector](https://fjbautistas.github.io/Galaxy-Pair-Inspector)
+
+The root `index.html` redirects to `mobile/GalPairs.html` while preserving URL
+hashes used for recovery links. On first load, the app creates a local device
+ID, asks Supabase for a partition through `assign_partition`, and stores local
+progress in `localStorage`.
+
+After changing catalogs or Supabase keys, rebuild the standalone HTML:
+
+```bash
+python pipeline/export_standalone.py
+git add mobile/GalPairs.html
+git commit -m "update catalog"
+git push
+```
+
+### Desktop App
 
 ```bash
 python desktop/pair_inspector_app.py
 ```
 
-The app reads your device's partition from Supabase and loads only your assigned block of pairs. If no partition exists for your device, register it first (see below).
+The desktop app uses the fixed device id `DESKTOP`. It reads the corresponding
+partition from Supabase when available; without a partition or without Supabase,
+it falls back to local/full-catalog mode.
 
-### Mobile app
-
-Open [fjbautistas.github.io/Galaxy-Pair-Inspector](https://fjbautistas.github.io/Galaxy-Pair-Inspector) on any phone. The app registers the device automatically on the first load and assigns it a unique block of pairs.
-
-To rebuild the standalone HTML after catalog changes:
-
-```bash
-python pipeline/export_standalone.py
-git add mobile/GalPairs.html && git commit -m "update catalog" && git push
-```
-
----
-
-## Partition system
-
-Each device gets a non-overlapping slice of the catalog:
-
-| Zone | Size | Description |
-|------|------|-------------|
-| Calibration pool | 150 pairs (indices 0–149) | Shown to every classifier in a different random order. Used later to compute inter-rater agreement (Cohen's/Fleiss' κ). |
-| Work block | 3,000 pairs | Unique slice assigned per device, starting where the previous device's block ended. |
-
-The mobile app self-registers. For the desktop app:
+Register the desktop device manually when needed:
 
 ```bash
 python pipeline/register_device.py --device DESKTOP
 ```
 
-If the device is already registered, the command prints its existing assignment without changing anything.
+---
+
+## Partition And Calibration Design
+
+The current mobile flow combines pair and group inspection.
+
+| Zone | Size | Purpose |
+|------|------|---------|
+| Pair calibration base | 120 pairs | Shared by all users in seeded random order. |
+| Group calibration | 80 groups | Shared by all users in seeded random order. |
+| Pair supplemental calibration | 150 pairs | Canonical `rp in [20, 50] kpc` set from `data/supplementary_calib_ids.json`. Required for users with `calib_v = 1`. |
+| Pair work block | 3,000 pairs target | Non-overlapping device assignment. May combine legacy v1 and v2 slices. |
+| Group work block | 500 groups | Non-overlapping group assignment. |
+
+The app interleaves work items roughly as 5 pairs per 1 group. Calibration items
+must be classified by each user independently; work items can count existing
+desktop classifications when deciding what to skip.
+
+The `supabase/migrations/02_extend_to_50kpc.sql` migration adds the current
+two-slice logic:
+
+- `assign_partition(...)` atomically creates or returns a device partition.
+- `claim_v2_slice(...)` is called after supplemental calibration is complete and
+  assigns additional `rp in [20, 50] kpc` work.
+- `calib_v`, `work_start_v2`, and `work_end_v2` track this state.
 
 ---
 
-## Pipeline scripts
+## Data Flow
 
-### `pipeline/register_device.py`
-
-Registers a device in Supabase and assigns its work block. Reads catalog length from `PAIRS_CATALOG` in `.env`.
-(La app de escritorio no tiene lógica de auto-registro; si no encuentra partición en Supabase, fallará)
-
-```bash
-python pipeline/register_device.py --device IPHONE_FRANK
+```text
+External DESI pair/group pipeline
+    ↓
+PAIRS_CATALOG / GROUPS_CATALOG
+    ↓
+pipeline/export_standalone.py
+    ↓
+mobile/GalPairs.html + desktop/pair_inspector_app.py
+    ↓
+Supabase clasificaciones table
+    ↓
+pipeline/generate_labels.py
+    ↓
+outputs/catalogs/labels*.csv
+    ↓
+ML training / diagnostics
 ```
 
-### `pipeline/export_standalone.py`
-
-Embeds the full pair catalog into `mobile/GalPairs.html`. The JS in that file handles partitioning at runtime.
-
-```bash
-python pipeline/export_standalone.py
-```
-
-### `pipeline/generate_and_upload_images.py`
-
-Fetches classified pair IDs from Supabase, downloads 256×256 cutouts from Legacy Survey DR10, and uploads them to a shared Google Drive folder. Already-uploaded images are skipped.
-
-```bash
-python pipeline/generate_and_upload_images.py
-```
-
-Requires `google_credentials.json` (service account) in the project root.
-
-### `pipeline/generate_labels.py`
-
-Downloads all classifications from Supabase, applies majority vote per pair/group, and writes:
-
-- `outputs/catalogs/labels.csv` — work pairs
-- `outputs/catalogs/labels_calib.csv` — calibration pairs (id\_par < 150)
-- `outputs/catalogs/labels_groups.csv` — groups (if any classified)
-
-```bash
-python pipeline/generate_labels.py
-```
-
-### `pipeline/build_groups_catalog.py`
-
-Reconstructs unique FoF components from the edge list in `data/DESI_v3_groups.parquet` using BFS and writes `data/DESI_v3_groups_unique.parquet` (one row per group).
-
-```bash
-python pipeline/build_groups_catalog.py
-```
-
-### `pipeline/migrate_to_v3.py`
-
-One-time migration: translates existing classifications from the old catalog (`DESI_int_legacyID_pairs`) to v3 by crossmatching on `(id1, id2)`. Outputs `labels_migrados_v3.csv` and `labels_obsoletos.csv` without modifying the originals.
-
-```bash
-python pipeline/migrate_to_v3.py
-```
-
-### `pipeline/plot_dz_vs_rp.py` / `pipeline/plot_dz_vs_sep.py`
-
-Diagnostic scatter plots. Cross the pair catalog with Supabase classifications and produce 2D KDE plots of Δz vs rp\_kpc (or vs sep\_arcsec). Saved to `outputs/plots/`.
-
-```bash
-python pipeline/plot_dz_vs_rp.py
-python pipeline/plot_dz_vs_sep.py
-```
+Local desktop classifications also save clean image cutouts into the class
+folders under `outputs/`.
 
 ---
 
-## Data flow
+## Supabase Model
 
-```
-DESI_galaxies_base.parquet
-    ↓  pair-finding pipeline
-data/raw/  (path set via PAIRS_CATALOG in .env)
-    ↓
-Mobile app / Desktop app  →  Supabase
-    ↓
-pipeline/generate_and_upload_images.py  →  Google Drive (cutout images)
-    ↓
-pipeline/generate_labels.py  →  labels.csv
-    ↓
-RCNN training
+Main tables:
+
+- `clasificaciones`: one row per `(device_id, id_par)` with upsert semantics.
+- `partitions`: device-level work assignment and calibration state.
+
+Important convention:
+
+```text
+pairs:  id_par = catalog id_par
+groups: id_par = group_id + 10_000_000
 ```
 
----
-
-## Supabase setup
-
-### 1. Create a project at [supabase.com](https://supabase.com)
-
-### 2. Run this SQL in the editor
+For a new Supabase project, create the base tables first:
 
 ```sql
--- Classifications
 create table clasificaciones (
   id             bigserial primary key,
   device_id      text        not null,
@@ -220,14 +241,14 @@ grant usage on schema public to anon;
 grant insert, update, select on table clasificaciones to anon;
 grant usage, select on sequence clasificaciones_id_seq to anon;
 
--- Device partitions
 create table partitions (
-  id            bigserial primary key,
-  device_id     text        not null unique,
-  calib_seed    integer     not null,
-  work_start    integer     not null,
-  work_end      integer     not null,
-  registered_at timestamptz default now()
+  device_id        text primary key,
+  calib_seed       integer not null,
+  work_start       integer not null,
+  work_end         integer not null,
+  group_work_start integer,
+  group_work_end   integer,
+  registered_at    timestamptz default now()
 );
 
 alter table partitions enable row level security;
@@ -240,41 +261,115 @@ create policy "auto_register"
 
 grant usage on schema public to anon;
 grant select, insert on table partitions to anon;
-grant usage, select on sequence partitions_id_seq to anon;
 ```
 
-### 3. Copy keys to `.env`
+Then apply the current migration:
 
-Keys are under **Settings → API** in your Supabase project.
+```text
+supabase/migrations/02_extend_to_50kpc.sql
+```
 
-### Running without Supabase
-
-The apps work without a database. Classifications go to `outputs/catalogs/progress.json` (desktop) and `localStorage` (mobile). Cloud sync does nothing if `.env` is missing.
-
----
-
-## Google Drive setup
-
-Images are uploaded via a service account, so there's no OAuth prompt.
-
-1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
-2. Enable the **Google Drive API**
-3. Create a service account and download `google_credentials.json` to the project root
-4. Create a folder in Google Drive and share it with the service account email (Editor access)
-5. Set `DRIVE_FOLDER_ID` in `pipeline/generate_and_upload_images.py` to the folder ID from the URL
-
-`google_credentials.json` is in `.gitignore` and will never be committed.
+The migration is idempotent and refreshes the `assign_partition` and
+`claim_v2_slice` RPCs used by the mobile app.
 
 ---
 
-## Keyboard shortcuts (desktop app)
+## Pipeline Scripts
+
+### `pipeline/export_standalone.py`
+
+Reads `PAIRS_CATALOG`, optional `GROUPS_CATALOG`, local desktop classifications,
+and supplemental calibration IDs. It embeds everything into `mobile/GalPairs.html`.
+
+```bash
+python pipeline/export_standalone.py
+```
+
+### `pipeline/register_device.py`
+
+Registers or prints an existing device partition. Useful for desktop/manual
+setup.
+
+```bash
+python pipeline/register_device.py --device IPHONE_FRANK
+```
+
+### `pipeline/generate_labels.py`
+
+Downloads Supabase classifications, applies majority vote, omits tied items,
+and writes:
+
+- `outputs/catalogs/labels.csv`
+- `outputs/catalogs/labels_calib.csv`
+- `outputs/catalogs/labels_groups.csv`
+- `outputs/catalogs/labels_groups_calib.csv`
+
+```bash
+python pipeline/generate_labels.py
+```
+
+### `pipeline/migrate_to_v3.py`
+
+Translates existing labels from the old pair catalog to `DESI_v3_pairs.parquet`
+by crossmatching the symmetric `(id1, id2)` TARGETID pair.
+
+```bash
+python pipeline/migrate_to_v3.py
+```
+
+### `pipeline/download_from_cloud.py`
+
+Downloads all rows from Supabase as a JSON backup compatible with older import
+workflows.
+
+```bash
+python pipeline/download_from_cloud.py
+```
+
+### `pipeline/generate_and_upload_images.py`
+
+Downloads 256x256 cutouts for classified pair IDs and uploads missing files to
+the configured Google Drive folder. Requires `google_credentials.json`.
+
+```bash
+python pipeline/generate_and_upload_images.py
+```
+
+### Diagnostic plots
+
+```bash
+python pipeline/plot_dz_vs_rp.py
+python pipeline/plot_dz_vs_sep.py
+python pipeline/plot_classification_impact.py
+```
+
+Plots are written to `outputs/plots/`.
+
+---
+
+## Running Without Supabase
+
+The apps still work locally without Supabase:
+
+- Desktop progress: `outputs/catalogs/progress.json` and
+  `outputs/catalogs/progress_groups.json`.
+- Mobile progress: browser `localStorage`.
+
+Cloud sync and automatic non-overlapping partition assignment require Supabase.
+
+---
+
+## Desktop Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Space` / `→` | Next page |
-| `←` | Previous page |
-| `Tab` / `Shift+Tab` | Move between cells |
-| `F` | Toggle False Positive |
-| `P` | Toggle Confirmed Pair |
-| `M` | Toggle Possible Merger |
+| `Space` / `Right` | Next page |
+| `Left` | Previous page |
+| `Tab` / `Shift+Tab` | Move selected cell |
+| `F` | Toggle false positive |
+| `P` | Toggle confirmed pair |
+| `M` | Toggle possible merger |
+| `G` | Toggle confirmed group in group cells |
 | `Ctrl+E` | Export CSV |
+
+Double-click an image to open the Legacy Survey Sky Viewer.

@@ -817,6 +817,26 @@
     </div>
   </div>
 
+  <!-- ALIAS ONBOARDING MODAL (solo se muestra a usuarios nuevos sin device_id en localStorage) -->
+  <div class="modal-back hidden" id="aliasModal">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="modal-title">👋 Welcome — pick a nickname</div>
+      <div style="font-size:13px;color:#aaa;margin-bottom:14px;line-height:1.55">
+        Your nickname is the only way to recover your progress on a new device or after clearing browser data.
+        <strong style="color:#f4c97a">Save it somewhere</strong> (note, screenshot, etc.).
+      </div>
+      <input id="aliasInput" type="text" maxlength="10" placeholder="3–10 letters/digits"
+             autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"
+             style="width:100%;padding:12px;font-size:18px;background:#2a2a2a;border:1px solid #444;border-radius:8px;color:#eee;text-transform:uppercase;letter-spacing:2px;text-align:center;font-family:monospace;box-sizing:border-box">
+      <div id="aliasError" style="font-size:12px;color:#e57373;margin-top:8px;min-height:16px"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button onclick="_aliasUseRandom()" style="flex:1;padding:12px;background:#333;border:1px solid #444;border-radius:8px;color:#eee;font-size:14px;cursor:pointer">🎲 Random</button>
+        <button onclick="_aliasSubmit()" style="flex:2;padding:12px;background:#43a047;border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Continue</button>
+      </div>
+    </div>
+  </div>
+
   <script>
   // ═══════════════════════════════════════════════════════════════════════
   // CONSTANTS — match desktop app
@@ -868,14 +888,79 @@
   // ═══════════════════════════════════════════════════════════════════════
   // DEVICE ID — generado una vez y guardado en localStorage
   // ═══════════════════════════════════════════════════════════════════════
-  function getOrCreateDeviceId() {
+  async function getOrCreateDeviceId() {
     let id = localStorage.getItem('galpairs_device_id');
-    if (!id) {
-      // 5 caracteres alfanuméricos en mayúsculas, ej: "XK9P2"
-      id = Math.random().toString(36).substr(2, 5).toUpperCase();
-      localStorage.setItem('galpairs_device_id', id);
-    }
+    if (id) return id;  // usuario existente — comportamiento actual, sin fricción
+    // Usuario nuevo: pedir nickname (con opción "random")
+    id = await _promptForAlias();
+    localStorage.setItem('galpairs_device_id', id);
     return id;
+  }
+
+  // Devuelve el alias elegido por el usuario (escrito o random). El modal cierra solo.
+  function _promptForAlias() {
+    return new Promise(resolve => {
+      const modal = document.getElementById('aliasModal');
+      const input = document.getElementById('aliasInput');
+      const errEl = document.getElementById('aliasError');
+      modal.classList.remove('hidden');
+      input.value = '';
+      errEl.textContent = '';
+      // Pequeño delay para que iOS Safari abra el teclado
+      setTimeout(() => input.focus(), 250);
+
+      // Limpia error mientras escribe
+      input.oninput = () => { errEl.textContent = ''; };
+
+      window._aliasUseRandom = () => {
+        const id = Math.random().toString(36).substr(2, 5).toUpperCase();
+        modal.classList.add('hidden');
+        resolve(id);
+      };
+
+      window._aliasSubmit = async () => {
+        const raw = input.value.trim().toUpperCase();
+        if (!/^[A-Z0-9]{3,10}$/.test(raw)) {
+          errEl.textContent = 'Use 3–10 letters or digits only';
+          return;
+        }
+        errEl.style.color = '#aaa';
+        errEl.textContent = 'Checking…';
+        const exists = await _aliasExistsInSupabase(raw);
+        errEl.style.color = '#e57373';
+        if (exists) {
+          errEl.textContent = '';
+          const ok = confirm(
+            `The nickname "${raw}" is already in use.\n\n` +
+            `If it's YOURS (you used it before on another device or after clearing browser data), tap OK to recover your progress.\n\n` +
+            `If not, tap Cancel and pick a different one.`
+          );
+          if (!ok) { errEl.textContent = ''; return; }
+        }
+        modal.classList.add('hidden');
+        resolve(raw);
+      };
+
+      input.onkeydown = e => {
+        if (e.key === 'Enter') { e.preventDefault(); window._aliasSubmit(); }
+      };
+    });
+  }
+
+  async function _aliasExistsInSupabase(alias) {
+    try {
+      const url = window._SUPABASE_URL;
+      const key = window._SUPABASE_ANON_KEY;
+      if (!url || !key) return false;
+      const r = await fetch(
+        `${url}/rest/v1/partitions?device_id=eq.${encodeURIComponent(alias)}&select=device_id&limit=1`,
+        { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+      );
+      const rows = await r.json();
+      return Array.isArray(rows) && rows.length > 0;
+    } catch (_) {
+      return false;  // si la red falla, asumimos nuevo (no bloqueamos al usuario)
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1986,7 +2071,7 @@
       const basePairs  = data.pairs  || [];
       const baseGroups = data.groups || [];
       desktopCl = data.desktop_classified || {};
-      deviceId  = getOrCreateDeviceId();
+      deviceId  = await getOrCreateDeviceId();
 
       // ── Obtener/crear partición desde Supabase ───────────────────────
       const partition = await getOrCreatePartition(deviceId);
