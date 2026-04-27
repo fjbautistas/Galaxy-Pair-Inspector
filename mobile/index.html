@@ -1564,12 +1564,7 @@
 
     const calibPairs = seededShuffle(calibBasePairs, _seed);
 
-    const workPairs = [
-      ..._basePairs.slice(_partition.work_start, _partition.work_end),
-      ...((_partition.work_start_v2 != null && _partition.work_end_v2 != null)
-           ? _basePairs.slice(_partition.work_start_v2, _partition.work_end_v2)
-           : []),
-    ];
+    const workPairs = _buildMixedWorkPairs(_partition);
 
     const calibGroups = seededShuffle(
       _baseGroups.slice(0, CALIB_GROUPS).map(g => ({...g, _calibGroup: true})),
@@ -1993,6 +1988,43 @@
   const CALIB_SIZE         = CALIB_PAIRS;
   const BLOCK_SIZE         = 3000;
   const GROUP_BLOCK_SIZE   = 500;
+  const WORK_V1_FRACTION   = 0.65;  // 65% rp<20, 35% rp∈[20,50)
+
+  function _workQuotas(total = BLOCK_SIZE) {
+    const v1 = Math.round(total * WORK_V1_FRACTION);
+    return { v1, v2: total - v1 };
+  }
+
+  function _buildMixedWorkPairs(partition) {
+    if (!partition) {
+      return seededShuffle(_basePairs.slice(CALIB_PAIRS), _seed ^ 0xA5F3)
+        .slice(0, BLOCK_SIZE);
+    }
+
+    const nV1 = ((window._CATALOG && window._CATALOG.n_pairs_v1) || 31976);
+    const { v1: qV1, v2: qV2 } = _workQuotas(BLOCK_SIZE);
+
+    const v1Start = Math.max(CALIB_PAIRS, Math.min(partition.work_start || CALIB_PAIRS, nV1));
+    const v1End   = Math.max(v1Start, Math.min(partition.work_end || v1Start, nV1));
+    const v1Pairs = _basePairs.slice(v1Start, v1End).slice(0, qV1);
+
+    let v2Pairs = [];
+    if (partition.work_start_v2 != null && partition.work_end_v2 != null) {
+      v2Pairs = _basePairs.slice(partition.work_start_v2, partition.work_end_v2);
+    } else if ((partition.work_start || 0) >= nV1) {
+      v2Pairs = _basePairs.slice(partition.work_start, partition.work_end);
+    }
+    v2Pairs = v2Pairs.slice(0, qV2);
+
+    const out = [...v1Pairs, ...v2Pairs];
+    if (out.length < BLOCK_SIZE) {
+      const used = new Set(out.map(p => p.id_par));
+      const filler = seededShuffle(_basePairs.slice(CALIB_PAIRS), _seed ^ 0xB10C)
+        .filter(p => !used.has(p.id_par));
+      out.push(...filler.slice(0, BLOCK_SIZE - out.length));
+    }
+    return out;
+  }
 
   async function getOrCreatePartition(devId) {
     const url  = window._SUPABASE_URL;
@@ -2005,7 +2037,30 @@
       'Content-Type':  'application/json',
     };
 
-    // Llamar a la función RPC atómica en Supabase (evita race condition)
+    // Llamar a la función RPC mixta: asigna 65% rp<20 y 35% rp∈[20,50).
+    try {
+      const r = await fetch(`${url}/rest/v1/rpc/assign_partition_mixed`, {
+        method:  'POST',
+        headers,
+        body: JSON.stringify({
+          p_device_id:        devId,
+          p_calib_seed:       Math.floor(Math.random() * 1_000_000),
+          p_block_size:       BLOCK_SIZE,
+          p_calib_size:       CALIB_SIZE,
+          p_group_block_size: GROUP_BLOCK_SIZE,
+          p_group_calib_size: CALIB_GROUPS,
+          p_v1_max_idx:       ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 31976),
+          p_v2_max_idx:       ((window._CATALOG && window._CATALOG.total_pairs) || 79156),
+        }),
+      });
+      if (r.ok) {
+        const rows = await r.json();
+        const row = Array.isArray(rows) ? rows[0] : rows;
+        if (row && row.device_id) return row;
+      }
+    } catch (_) {}
+
+    // Fallback legacy: función RPC antigua.
     try {
       const r = await fetch(`${url}/rest/v1/rpc/assign_partition`, {
         method:  'POST',
@@ -2122,15 +2177,8 @@
         ? suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined)
         : [];
 
-      // 3) Work pairs: hasta dos slices (v1 + v2) si el usuario ya hizo claim_v2_slice
-      const workPairs = partition
-        ? [
-            ...basePairs.slice(partition.work_start, partition.work_end),
-            ...((partition.work_start_v2 != null && partition.work_end_v2 != null)
-                 ? basePairs.slice(partition.work_start_v2, partition.work_end_v2)
-                 : []),
-          ]
-        : seededShuffle(basePairs.slice(CALIB_PAIRS), seed ^ 0xA5F3);
+      // 3) Work pairs: objetivo 3000 pares, 65% rp<20 y 35% rp∈[20,50).
+      const workPairs = _buildMixedWorkPairs(partition);
 
       // ── Grupos: calibración (primeros CALIB_GROUPS, mismos para todos, orden distinto)
       const calibGroups = seededShuffle(
@@ -2160,12 +2208,10 @@
         return out;
       }
       // Catálogo final (ratio 5:1 — 1 grupo por cada 5 pares):
-      //   1. Calib base (intercalada con grupos calib)
-      //   2. Calib suplementaria (sin grupos, secuencial) — solo si calib_v=1
-      //   3. Work block (intercalado con grupos work)
+      //   1. Calibración completa de pares (base + suplementaria), intercalada con grupos calib
+      //   2. Work block mixto 65/35, intercalado con grupos work
       catalog = [
-        ...interleave(calibPairs, calibGroups),
-        ...suppCalibPairs,
+        ...interleave([...calibPairs, ...suppCalibPairs], calibGroups),
         ...interleave(workPairs,  workGroups),
       ];
 

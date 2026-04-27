@@ -162,17 +162,18 @@ The current mobile flow combines pair and group inspection.
 | Pair calibration base | 120 pairs | Shared by all users in seeded random order. |
 | Group calibration | 80 groups | Shared by all users in seeded random order. |
 | Pair supplemental calibration | 150 pairs | Canonical `rp in [20, 50] kpc` set from `data/supplementary_calib_ids.json`. Required for users with `calib_v = 1`. |
-| Pair work block | 3,000 pairs target | Non-overlapping device assignment. May combine legacy v1 and v2 slices. |
+| Pair work block | 3,000 pairs target | Non-overlapping mixed assignment: 65% from `5 <= rp < 20 kpc` and 35% from `20 <= rp < 50 kpc`. |
 | Group work block | 500 groups | Non-overlapping group assignment. |
 
-The app interleaves work items roughly as 5 pairs per 1 group. Calibration items
-must be classified by each user independently; work items can count existing
-desktop classifications when deciding what to skip.
+The app interleaves items roughly as 5 pairs per 1 group. Calibration items must
+be classified by each user independently; work items can count existing desktop
+classifications when deciding what to skip.
 
 The `supabase/migrations/02_extend_to_50kpc.sql` migration adds the current
 two-slice logic:
 
-- `assign_partition(...)` atomically creates or returns a device partition.
+- `assign_partition_mixed(...)` atomically creates or returns a mixed 65/35 device partition.
+- `assign_partition(...)` remains as a legacy fallback.
 - `claim_v2_slice(...)` is called after supplemental calibration is complete and
   assigns additional `rp in [20, 50] kpc` work.
 - `calib_v`, `work_start_v2`, and `work_end_v2` track this state.

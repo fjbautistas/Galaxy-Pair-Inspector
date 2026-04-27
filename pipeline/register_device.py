@@ -29,6 +29,7 @@ import random
 import sys
 import urllib.request as urlreq
 from pathlib import Path
+import pandas as pd
 import pyarrow.parquet as pq
 
 # ── Leer .env ─────────────────────────────────────────────────────────────────
@@ -56,6 +57,8 @@ CALIB_GROUPS       = 80      # grupos de calibración compartidos por todos los 
 CALIB_SIZE         = CALIB_PAIRS   # alias: work_start del primer dispositivo
 BLOCK_SIZE         = 3_000
 GROUP_BLOCK_SIZE   = 500     # grupos de trabajo por dispositivo
+RP_V1_KPC          = 20.0
+WORK_V1_FRACTION   = 0.65
 
 # ── Helpers REST ──────────────────────────────────────────────────────────────
 def _headers():
@@ -76,16 +79,23 @@ def _get_all_partitions() -> list:
 
 def _insert_partition(device_id: str, calib_seed: int,
                       work_start: int, work_end: int,
-                      group_work_start: int, group_work_end: int) -> None:
+                      group_work_start: int, group_work_end: int,
+                      work_start_v2=None,
+                      work_end_v2=None) -> None:
     url  = f'{SUPABASE_URL}/rest/v1/partitions'
-    data = json.dumps([{
+    row = {
         'device_id':        device_id,
         'calib_seed':       calib_seed,
         'work_start':       work_start,
         'work_end':         work_end,
         'group_work_start': group_work_start,
         'group_work_end':   group_work_end,
-    }]).encode('utf-8')
+        'calib_v':          1,
+    }
+    if work_start_v2 is not None and work_end_v2 is not None:
+        row['work_start_v2'] = work_start_v2
+        row['work_end_v2']   = work_end_v2
+    data = json.dumps([row]).encode('utf-8')
     req = urlreq.Request(url, data=data, headers={
         **_headers(),
         'Prefer': 'return=minimal',
@@ -100,6 +110,10 @@ def register(device_id: str) -> dict:
     Devuelve la configuración del dispositivo (existente o recién creada).
     """
     catalog_len = pq.read_metadata(CATALOG_PATH).num_rows
+    rp = pd.read_parquet(CATALOG_PATH, columns=['rp_kpc'])['rp_kpc']
+    n_v1 = int((rp < RP_V1_KPC).sum())
+    q_v1 = round(BLOCK_SIZE * WORK_V1_FRACTION)
+    q_v2 = BLOCK_SIZE - q_v1
     partitions = _get_all_partitions()
 
     # ¿Ya está registrado?
@@ -107,21 +121,35 @@ def register(device_id: str) -> dict:
     if existing:
         return {'status': 'existing', 'partition': existing}
 
-    # Calcular siguiente bloque de pares disponible
+    # Calcular siguientes bloques disponibles por zona.
     if partitions:
-        max_end = max(p['work_end'] for p in partitions)
+        max_v1_end = max(
+            [min(int(p.get('work_end', CALIB_SIZE)), n_v1)
+             for p in partitions if int(p.get('work_start', 0)) < n_v1] or [CALIB_SIZE]
+        )
+        max_v2_end = max(
+            [int(p.get('work_end_v2')) for p in partitions if p.get('work_end_v2') is not None] +
+            [int(p.get('work_end')) for p in partitions if int(p.get('work_start', 0)) >= n_v1] +
+            [n_v1]
+        )
     else:
-        max_end = CALIB_SIZE
+        max_v1_end = CALIB_SIZE
+        max_v2_end = n_v1
 
-    work_start = max_end
-    work_end   = work_start + BLOCK_SIZE
+    work_start = max_v1_end
+    work_end   = min(work_start + q_v1, n_v1)
+    work_start_v2 = max_v2_end
+    work_end_v2   = min(work_start_v2 + q_v2, catalog_len)
 
-    if work_start >= catalog_len:
+    if work_end <= work_start:
+        work_start = n_v1
+        work_end = n_v1
+        work_end_v2 = min(work_start_v2 + BLOCK_SIZE, catalog_len)
+
+    if work_start_v2 >= catalog_len and work_start >= n_v1:
         raise RuntimeError(
             f'Catálogo agotado: todos los {catalog_len:,} pares ya están asignados.'
         )
-    if work_end > catalog_len:
-        work_end = catalog_len
 
     # Calcular siguiente bloque de grupos disponible
     if partitions:
@@ -134,7 +162,8 @@ def register(device_id: str) -> dict:
 
     calib_seed = random.randint(0, 999_999)
     _insert_partition(device_id, calib_seed, work_start, work_end,
-                      group_work_start, group_work_end)
+                      group_work_start, group_work_end,
+                      work_start_v2, work_end_v2)
 
     partition = {
         'device_id':        device_id,
@@ -143,6 +172,9 @@ def register(device_id: str) -> dict:
         'work_end':         work_end,
         'group_work_start': group_work_start,
         'group_work_end':   group_work_end,
+        'calib_v':          1,
+        'work_start_v2':    work_start_v2,
+        'work_end_v2':      work_end_v2,
     }
     return {'status': 'created', 'partition': partition}
 
@@ -160,7 +192,10 @@ def print_summary(result: dict) -> None:
           f'+ {CALIB_GROUPS} grupos (0–{CALIB_GROUPS-1}) '
           f'= 200 ítems, seed={p["calib_seed"]}')
     print(f'  Bloque pares      : índices {p["work_start"]}–{p["work_end"] - 1} '
-          f'({n_pairs:,} pares)')
+          f'({n_pairs:,} pares rp<20)')
+    if p.get('work_start_v2') is not None and p.get('work_end_v2') is not None:
+        print(f'  Bloque pares v2   : índices {p["work_start_v2"]}–{p["work_end_v2"] - 1} '
+              f'({p["work_end_v2"] - p["work_start_v2"]:,} pares rp≥20)')
     print(f'  Bloque grupos     : índices {gs}–{ge_val - 1 if isinstance(ge_val, int) else "?"} '
           f'({n_groups} grupos)')
     if result['status'] == 'existing':

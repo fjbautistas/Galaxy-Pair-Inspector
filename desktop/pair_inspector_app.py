@@ -115,7 +115,13 @@ GROUP_FP_IMG_DIR      = 'outputs/group_fp_images'
 GROUP_PM_IMG_DIR      = 'outputs/group_pm_images'
 GROUP_PP_IMG_DIR      = 'outputs/group_pp_images'
 
-RP_MAX_KPC = 20.0
+RP_MAX_KPC = 50.0
+RP_V1_KPC  = 20.0
+CALIB_PAIRS = 120
+CALIB_GROUPS = 80
+BLOCK_SIZE = 3000
+GROUP_BLOCK_SIZE = 500
+WORK_V1_FRACTION = 0.65
 
 GRID_COLS = 4
 GRID_ROWS = 2
@@ -587,6 +593,17 @@ class PairValidator:
         else:
             df_filtered = df_full.reset_index(drop=True)
 
+        # Mantener el mismo orden lógico que la PWA: primero rp<20, luego 20<=rp<50.
+        if self.rp_col:
+            mask_v1 = df_filtered[self.rp_col] < RP_V1_KPC
+            df_filtered = pd.concat(
+                [df_filtered[mask_v1], df_filtered[~mask_v1]],
+                ignore_index=True,
+            )
+            self.n_pairs_v1 = int(mask_v1.sum())
+        else:
+            self.n_pairs_v1 = len(df_filtered)
+
         # Catálogo completo (sin partición) — usado solo para búsqueda por ID
         self.df_full = df_filtered
 
@@ -595,16 +612,30 @@ class PairValidator:
             calib_seed  = int(partition.get('calib_seed',  0))
             work_start  = int(partition.get('work_start',  0))
             work_end    = int(partition.get('work_end',    len(df_filtered)))
-            calib_size  = min(work_start, len(df_filtered))   # = 150 normalmente
+            calib_size  = min(CALIB_PAIRS, len(df_filtered))
+
+            q_v1 = round(BLOCK_SIZE * WORK_V1_FRACTION)
+            q_v2 = BLOCK_SIZE - q_v1
 
             calib_block = (df_filtered.iloc[:calib_size]
                            .sample(frac=1, random_state=calib_seed)
                            .reset_index(drop=True))
-            work_block  = df_filtered.iloc[work_start:work_end].reset_index(drop=True)
+            v1_start = max(CALIB_PAIRS, min(work_start, self.n_pairs_v1))
+            v1_end   = max(v1_start, min(work_end, self.n_pairs_v1))
+            work_parts = [df_filtered.iloc[v1_start:v1_end].head(q_v1)]
+
+            if partition.get('work_start_v2') is not None and partition.get('work_end_v2') is not None:
+                v2_start = int(partition.get('work_start_v2'))
+                v2_end   = int(partition.get('work_end_v2'))
+                work_parts.append(df_filtered.iloc[v2_start:v2_end].head(q_v2))
+            elif work_start >= self.n_pairs_v1:
+                work_parts.append(df_filtered.iloc[work_start:work_end].head(q_v2))
+
+            work_block = pd.concat(work_parts, ignore_index=True) if work_parts else pd.DataFrame()
             self.df     = pd.concat([calib_block, work_block], ignore_index=True)
             self.work_end_local = len(calib_block) + len(work_block)  # límite en df local
             print(f'Partición: calibración={len(calib_block)} pares (seed={calib_seed}) '
-                  f'+ trabajo={len(work_block)} pares [{work_start}–{work_end}]')
+                  f'+ trabajo={len(work_block)} pares mixtos 65/35')
         else:
             self.df = df_filtered
             self.work_end_local = len(df_filtered)
@@ -805,7 +836,7 @@ class GroupValidator:
 
     def __init__(self, catalog_path, progress_file,
                  group_img_dir, group_fp_img_dir, group_pm_img_dir,
-                 group_pp_img_dir=None):
+                 group_pp_img_dir=None, partition: 'dict | None' = None):
         self.progress_file    = progress_file
         self.group_img_dir    = Path(group_img_dir)
         self.group_fp_img_dir = Path(group_fp_img_dir)
@@ -824,8 +855,24 @@ class GroupValidator:
         df = _load_groups_from_edges(catalog_path)
         # print(f'  {len(df):,} grupos únicos cargados')
 
-        self.df      = df.reset_index(drop=True)
-        self.df_full = self.df   # sin partición por ahora
+        self.df_full = df.reset_index(drop=True)
+        if partition:
+            calib_seed = int(partition.get('calib_seed', 0))
+            gs = int(partition.get('group_work_start', CALIB_GROUPS))
+            ge = int(partition.get('group_work_end', gs + GROUP_BLOCK_SIZE))
+            calib = (self.df_full.iloc[:CALIB_GROUPS]
+                     .sample(frac=1, random_state=calib_seed ^ 0xCAFE)
+                     .reset_index(drop=True))
+            work = self.df_full.iloc[gs:ge].reset_index(drop=True)
+            if work.empty and len(self.df_full) > CALIB_GROUPS:
+                work = (self.df_full.iloc[CALIB_GROUPS:]
+                        .sample(frac=1, random_state=calib_seed ^ 0x1F2E3D)
+                        .head(GROUP_BLOCK_SIZE)
+                        .reset_index(drop=True))
+            self.df = pd.concat([calib, work], ignore_index=True)
+            print(f'Partición grupos: calibración={len(calib)} + trabajo={len(work)}')
+        else:
+            self.df = self.df_full
         self.rp_col  = 'rp_kpc_max' if 'rp_kpc_max' in df.columns else None
 
         # Índice actual y listas de clasificación
@@ -2795,6 +2842,7 @@ def main():
                 group_img_dir    = GROUP_IMG_DIR,
                 group_fp_img_dir = GROUP_FP_IMG_DIR,
                 group_pm_img_dir = GROUP_PM_IMG_DIR,
+                partition        = partition,
             )
             print(f'Catálogo grupos: {len(group_validator.df):,}  |  '
                   f'Revisados: {group_validator.current_index:,}  |  '
