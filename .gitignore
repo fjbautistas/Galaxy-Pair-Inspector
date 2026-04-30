@@ -56,3 +56,5 @@ build/
 *.swp
 *.swo
 .claude/
+# ── Análisis locales no versionados ─────────────────────────────────────────
+analysis/
