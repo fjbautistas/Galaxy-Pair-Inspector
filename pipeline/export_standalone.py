@@ -44,8 +44,9 @@ SUPABASE_URL      = _env.get('SUPABASE_URL', '')
 SUPABASE_ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-CATALOG_PATH        = _env.get('PAIRS_CATALOG', '')
-GROUPS_CATALOG_PATH = _env.get('GROUPS_CATALOG', '')
+CATALOG_PATH         = _env.get('PAIRS_CATALOG', '')
+GROUPS_CATALOG_PATH  = _env.get('GROUPS_CATALOG', '')
+SUPP_CALIB_JSON      = 'data/supplementary_calib_ids_v5_3.json'
 GROUP_Z_MIN   = 0.01   # excluir grupos con z_center ≤ este valor (artifact FoF local)
 PROGRESS_FILE = 'outputs/catalogs/progress.json'
 TEMPLATE_HTML = 'mobile/index.html'
@@ -53,6 +54,20 @@ OUTPUT_HTML   = 'mobile/GalPairs.html'
 RP_MAX_KPC    = 50.0   # extendido desde 20 → permite régimen rp ∈ [20,50] kpc
 RP_V1_KPC     = 20.0   # frontera entre slice v1 (legacy) y v2 (suplementario)
 MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
+
+# ── Calibración suplementaria ─────────────────────────────────────────────────
+def _load_supp_calib_ids() -> list:
+    """Devuelve lista de pair_uid (str) del set de calibración suplementaria v5_3."""
+    p = Path(SUPP_CALIB_JSON)
+    if not p.exists():
+        print(f'  Aviso: {SUPP_CALIB_JSON} no encontrado — calibración suplementaria no incluida')
+        return []
+    with open(p) as f:
+        data = json.load(f)
+    ids = data.get('pair_uid', [])
+    print(f'  Calibración suplementaria: {len(ids)} pair_uids cargados desde {SUPP_CALIB_JSON}')
+    return ids
+
 
 # ── Catálogo ──────────────────────────────────────────────────────────────────
 def _infer_catalog_version(path: str) -> str:
@@ -267,8 +282,10 @@ def main():
         sys.exit(1)
 
     catalog = build_catalog()
+    supp_calib_ids = _load_supp_calib_ids()
 
-    catalog_json = json.dumps(catalog, separators=(',', ':'))
+    catalog_json    = json.dumps(catalog, separators=(',', ':'))
+    supp_ids_json   = json.dumps(supp_calib_ids, separators=(',', ':'))
 
     with open(TEMPLATE_HTML, encoding='utf-8') as f:
         html = f.read()
@@ -280,6 +297,7 @@ def main():
     inject = (
         f'<script>'
         f'window._CATALOG={catalog_json};'
+        f'window._SUPP_CALIB_IDS={supp_ids_json};'
         f'{supabase_js}'
         f'</script>\n  '
     )
@@ -302,6 +320,7 @@ def main():
           f'  (v1 rp<{RP_V1_KPC}: {catalog["n_pairs_v1"]:,}'
           f'  |  v2 rp∈[{RP_V1_KPC},{RP_MAX_KPC}): {catalog["n_pairs_v2"]:,})')
     print(f'   Grupos: {catalog["total_groups"]:,}')
+    print(f'   Calib suplementaria: {len(supp_calib_ids)} pair_uids')
     print(f'   Tamaño: {size_mb:.1f} MB')
     print()
     print('Siguiente paso — publicar en GitHub Pages:')

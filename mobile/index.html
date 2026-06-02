@@ -1561,7 +1561,8 @@
 
   function _isCalibItem(item) {
     // Grupos de calibración: marcados con _calibGroup en init().
-    // Pares de calibración: presentes en _calibIdSet (los primeros CALIB_PAIRS).
+    // Pares de calibración: presentes en _calibIdSet
+    //   (primeros CALIB_PAIRS base rp<20 + supp rp∈[20,50) — todos fijos para todos).
     if (isGroup(item)) return item._calibGroup === true;
     return _calibIdSet.has(pairKey(item));
   }
@@ -2001,9 +2002,9 @@
   // ═══════════════════════════════════════════════════════════════════════
   // PARTITION — auto-registro y asignación de bloque desde Supabase
   // ═══════════════════════════════════════════════════════════════════════
-  const CALIB_PAIRS        = 120;   // pares de calibración (iguales para todos)
+  const CALIB_PAIRS        = 120;   // pares de calibración base (rp<20 kpc, iguales para todos)
   const CALIB_GROUPS       = 80;    // grupos de calibración (iguales para todos)
-  const CALIB_SIZE         = CALIB_PAIRS;
+  const CALIB_SIZE         = CALIB_PAIRS;  // alias legacy; calibración real incluye supp
   const BLOCK_SIZE         = 1000;
   const GROUP_BLOCK_SIZE   = 100;
   const WORK_V1_FRACTION   = 0.50;  // 50% rp<20, 50% rp∈[20,50)
@@ -2184,12 +2185,27 @@
       _partition  = partition;
       _seed       = seed;
 
-      // ── Calibración base ─────────────────────────────────────────────
+      // ── Calibración base (rp < 20 kpc) ───────────────────────────────
       const calibBasePairs = basePairs.slice(0, CALIB_PAIRS);
-      _calibIdSet = new Set(calibBasePairs.map(pairKey));
 
-      // 1) Calibración: CALIB_PAIRS pares, orden seeded.
+      // ── Calibración suplementaria (rp ∈ [20,50) kpc) ─────────────────
+      // pair_uid set inyectado por export_standalone.py
+      const _suppIds = new Set(window._SUPP_CALIB_IDS || []);
+      const calibSuppPairs = _suppIds.size > 0
+        ? basePairs.filter(p => _suppIds.has(pairKey(p)))
+        : [];
+
+      // _calibIdSet: todos los pares de calibración (base + supp)
+      _calibIdSet = new Set([
+        ...calibBasePairs.map(pairKey),
+        ...calibSuppPairs.map(pairKey),
+      ]);
+
+      // 1a) Calibración base: 120 pares, orden seeded.
       const calibPairs = seededShuffle(calibBasePairs, seed);
+
+      // 1b) Calibración suplementaria: 149 pares, orden seeded.
+      const calibSuppPairsShuffled = seededShuffle(calibSuppPairs, seed ^ 0xD4C3B2);
 
       // 2) Work pairs: objetivo 1000 pares, 50% rp<20 y 50% rp∈[20,50).
       const workPairs = _buildMixedWorkPairs(partition);
@@ -2222,11 +2238,13 @@
         return out;
       }
       // Catálogo final (ratio 10:1 — 1 grupo por cada 10 pares):
-      //   1. Calibración de pares intercalada con grupos calib
-      //   2. Work block mixto 50/50, intercalado con grupos work
+      //   1. Calibración base (120 pares) intercalada con grupos calib
+      //   2. Calibración suplementaria (149 pares rp∈[20,50)) — sin grupos intercalados
+      //   3. Work block mixto 50/50, intercalado con grupos work
       catalog = [
-        ...interleave(calibPairs, calibGroups),
-        ...interleave(workPairs,  workGroups),
+        ...interleave(calibPairs,           calibGroups),
+        ...calibSuppPairsShuffled,
+        ...interleave(workPairs,            workGroups),
       ];
 
       if (!catalog.length) { showNoCatalog(); return; }
