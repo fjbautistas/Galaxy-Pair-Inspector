@@ -46,13 +46,27 @@ def _load_env(path='.env'):
 
 _env = _load_env()
 SUPABASE_URL = _env.get('SUPABASE_URL', '').rstrip('/')
-ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
+ANON_KEY = _env.get('SUPABASE_SERVICE_ROLE_KEY', '') or _env.get('SUPABASE_ANON_KEY', '')
 PAIRS_CATALOG = _env.get('PAIRS_CATALOG', '')
 GROUPS_CATALOG = _env.get('GROUPS_CATALOG', '')
 CALIB_PAIRS = 120
 CALIB_GROUPS = 80
 RP_V1_KPC = 20.0
+SUPP_CALIB_JSON = 'data/supplementary_calib_ids_v5_3.json'
 OUTPUT_DIR = Path('outputs/catalogs')
+
+
+def _load_supp_calib_ids() -> set:
+    """Devuelve el set de pair_uid de calibración suplementaria (rp ∈ [20,50) kpc)."""
+    try:
+        with open(SUPP_CALIB_JSON) as f:
+            data = json.load(f)
+        ids = set(data.get('pair_uid', []))
+        print(f'  Calibración suplementaria: {len(ids)} pair_uids cargados')
+        return ids
+    except FileNotFoundError:
+        print(f'  Aviso: {SUPP_CALIB_JSON} no encontrado — supp calib tratada como work')
+        return set()
 
 
 def _infer_catalog_version(path: str) -> str:
@@ -208,9 +222,10 @@ def _write_csv(rows: list[dict], path: Path, fieldnames: list[str]) -> None:
 
 def main():
     if not SUPABASE_URL or not ANON_KEY:
-        print('ERROR: falta SUPABASE_URL o SUPABASE_ANON_KEY en .env')
+        print('ERROR: falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en .env')
         sys.exit(1)
 
+    supp_calib_ids = _load_supp_calib_ids()
     catalog_version, pair_lookup = _load_pair_lookup(PAIRS_CATALOG)
     group_lookup = _load_group_lookup(GROUPS_CATALOG)
     print(f'Catálogo pares: {PAIRS_CATALOG or "no configurado"}')
@@ -245,8 +260,12 @@ def main():
         })
 
     pair_fields = ['pair_uid', 'id_par_v5', 'classification', 'n_votes', 'agreement']
-    calib_pairs = [r for r in labeled_pairs if r.get('_order') is not None and r['_order'] < CALIB_PAIRS]
-    work_pairs = [r for r in labeled_pairs if r.get('_order') is None or r['_order'] >= CALIB_PAIRS]
+    calib_pairs = [r for r in labeled_pairs
+                   if (r.get('_order') is not None and r['_order'] < CALIB_PAIRS)
+                   or r['pair_uid'] in supp_calib_ids]
+    work_pairs  = [r for r in labeled_pairs
+                   if (r.get('_order') is None or r['_order'] >= CALIB_PAIRS)
+                   and r['pair_uid'] not in supp_calib_ids]
     print('Escribiendo archivos de pares...')
     _write_csv(work_pairs, OUTPUT_DIR / 'labels.csv', pair_fields)
     _write_csv(calib_pairs, OUTPUT_DIR / 'labels_calib.csv', pair_fields)
