@@ -56,6 +56,23 @@ SUPP_CALIB_JSON = 'data/supplementary_calib_ids.json'  # IDs calibración suplem
 MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
 
 # ── Catálogo ──────────────────────────────────────────────────────────────────
+def _infer_catalog_version(path: str) -> str:
+    name = Path(path).name.lower()
+    for version in ('v5_3', 'v5_2', 'v5_1', 'v5', 'v4', 'v3'):
+        if version in name:
+            return version
+    return 'unknown'
+
+
+def _pair_uid(id1, id2) -> str:
+    a, b = sorted((int(id1), int(id2)))
+    return f'{a}:{b}'
+
+
+def _pair_key(item: dict) -> str:
+    return str(item.get('pair_uid') or item.get('id_par'))
+
+
 def _compute_sep(df):
     dec_mid = np.radians((df['dec1'].values + df['dec2'].values) / 2.0)
     dx = (df['ra1'].values - df['ra2'].values) * np.cos(dec_mid) * 3600.0
@@ -69,31 +86,59 @@ def _load_desktop_classified(progress_file):
     with open(progress_file) as f:
         state = json.load(f)
     result = {}
-    for entry in state.get('false_positives',  []): result[str(entry.get('id_par', ''))] = 'FP'
-    for entry in state.get('confirmed_pairs',   []): result[str(entry.get('id_par', ''))] = 'Pair'
-    for entry in state.get('possible_mergers',  []): result[str(entry.get('id_par', ''))] = 'PM'
+    for entry in state.get('false_positives',  []): result[_pair_key(entry)] = 'FP'
+    for entry in state.get('confirmed_pairs',   []): result[_pair_key(entry)] = 'Pair'
+    for entry in state.get('possible_mergers',  []): result[_pair_key(entry)] = 'PM'
+    result.pop('', None)
+    result.pop('None', None)
     return result
 
 
-def _load_supp_calib_ids() -> list:
+def _load_supp_calib_ids(version: str, pairs_by_id_par: dict[int, dict]) -> list:
     """Carga la lista canónica de IDs de calibración suplementaria (rp ∈ [20,50])."""
     if not Path(SUPP_CALIB_JSON).exists():
         print(f'  Aviso: {SUPP_CALIB_JSON} no encontrado — _SUPP_CALIB_IDS quedará vacío')
         return []
     with open(SUPP_CALIB_JSON) as f:
         data = json.load(f)
-    ids = list(data.get('id_par', []))
-    print(f'  {len(ids)} IDs de calibración suplementaria cargados')
-    return ids
+    ids = [int(x) for x in data.get('id_par', [])]
+    if version.startswith('v5'):
+        print('  Aviso: calibración suplementaria v3 no se reutiliza por id_par en v5; se omite')
+        return []
+    keys = [
+        _pair_key(pairs_by_id_par[id_par])
+        for id_par in ids
+        if id_par in pairs_by_id_par
+    ]
+    print(f'  {len(keys)} IDs de calibración suplementaria cargados')
+    return keys
 
 
 def build_catalog() -> dict:
     print('Leyendo catálogo…')
+    version = _infer_catalog_version(CATALOG_PATH)
     try:
         df = pd.read_parquet(CATALOG_PATH, engine='fastparquet')
     except Exception:
         df = pd.read_parquet(CATALOG_PATH, engine='pyarrow')
     print(f'  {len(df):,} pares totales')
+    print(f'  Versión inferida: {version}')
+
+    if 'pair_uid' not in df.columns:
+        df['pair_uid'] = [_pair_uid(a, b) for a, b in zip(df['id1'], df['id2'])]
+    else:
+        expected = pd.Series(
+            [_pair_uid(a, b) for a, b in zip(df['id1'], df['id2'])],
+            index=df.index,
+        )
+        bad = df['pair_uid'].astype(str).ne(expected).sum()
+        if bad:
+            raise RuntimeError(f'El catálogo tiene {bad} pair_uid inconsistentes con id1/id2')
+    if df['pair_uid'].duplicated().any():
+        dup = int(df['pair_uid'].duplicated().sum())
+        raise RuntimeError(f'El catálogo tiene pair_uid duplicados: {dup}')
+    if 'id_par' in df.columns and 'id_par_v5' not in df.columns and version.startswith('v5'):
+        df['id_par_v5'] = df['id_par']
 
     rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in df.columns), None)
     if rp_col and RP_MAX_KPC:
@@ -123,10 +168,12 @@ def build_catalog() -> dict:
 
     has_z1 = 'z1' in df.columns
     has_z2 = 'z2' in df.columns
+    has_id_par_v5 = 'id_par_v5' in df.columns
 
     pairs = []
     for _, row in df.iterrows():
         entry = {
+            'pair_uid':   str(row['pair_uid']),
             'id_par':     int(row['id_par']) if 'id_par' in row else int(row.name),
             'ra1':        round(float(row['ra1']),    5),
             'dec1':       round(float(row['dec1']),   5),
@@ -136,6 +183,8 @@ def build_catalog() -> dict:
             'dec_mid':    round(float(row['dec_mid']), 5),
             'sep_arcsec': round(float(row['sep_arcsec']), 1),
         }
+        if has_id_par_v5 and pd.notna(row['id_par_v5']):
+            entry['id_par_v5'] = int(row['id_par_v5'])
         if rp_col:
             entry['rp'] = round(float(row[rp_col]), 1)
         if has_z1:
@@ -151,12 +200,20 @@ def build_catalog() -> dict:
     desktop_cl = _load_desktop_classified(PROGRESS_FILE)
     print(f'  {len(desktop_cl)} pares ya clasificados en escritorio')
 
-    supp_calib_ids = _load_supp_calib_ids()
+    pairs_by_id_par = {
+        int(pair['id_par']): pair
+        for pair in pairs
+        if pair.get('id_par') is not None
+    }
+    supp_calib_ids = _load_supp_calib_ids(version, pairs_by_id_par)
 
     groups = _build_groups_catalog()
 
     return {
         'exported_at':        datetime.now().isoformat(),
+        'catalog_version':    version,
+        'cloud_sync_enabled': True,
+        'pair_cloud_sync_enabled': True,
         'rp_max_kpc':         RP_MAX_KPC,
         'rp_v1_kpc':          RP_V1_KPC,
         'n_pairs_v1':         n_v1,
@@ -205,8 +262,15 @@ def _build_groups_catalog() -> list:
         # Tomar solo los MAX_GROUP_MEMBERS_MOBILE más cercanos para no saturar el HTML
         top = members.head(MAX_GROUP_MEMBERS_MOBILE)
 
+        stable_system_id = None
+        if 'stable_system_id' in edges.columns:
+            vals = edges['stable_system_id'].dropna().astype(str).unique()
+            stable_system_id = vals[0] if len(vals) else None
+
         groups.append({
             'group_id':       int(gid),
+            'group_uid':      stable_system_id or str(int(gid)),
+            'stable_system_id': stable_system_id,
             'n_members':      len(members),
             'ra_center':      round(ra_c,  6),
             'dec_center':     round(dec_c, 6),

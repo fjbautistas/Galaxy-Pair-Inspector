@@ -1,24 +1,18 @@
 """
-generate_labels.py — Descarga clasificaciones de Supabase y genera labels.csv
+generate_labels.py — Descarga clasificaciones de Supabase y genera labels.csv.
 
-Descarga todas las clasificaciones de la tabla `clasificaciones`, aplica
-mayoría de votos por par y escribe los siguientes archivos:
+Esquema operacional v5_3:
+    - pares: item_type='pair', item_uid=pair_uid
+    - grupos: item_type='group', item_uid=stable_system_id/group_uid
 
-    outputs/catalogs/labels.csv          pares de trabajo (id_par < 10_000_000)
-    outputs/catalogs/labels_calib.csv    pares de calibración (id_par < 150)
-    outputs/catalogs/labels_groups.csv   grupos (id_par >= 10_000_000, desplazados)
+El script no cruza versiones por id_par. id_par_v5 se conserva solo como
+identificador de despliegue cuando viene en Supabase o en el catálogo actual.
 
-Los id_par de grupos están almacenados en Supabase como group_id + 10_000_000
-para evitar colisión con los pares.  Este script los detecta automáticamente
-y regenera el group_id original.
-
-Categorías de clasificación:
-    Pares:  FP, Pair, PM
-    Grupos: FP, GROUP, PM, PP (posible par dentro de un grupo)
-
-Reglas:
-    - Un solo voto basta para incluir un par o grupo.
-    - Empates (dos labels con el mismo número de votos) se omiten.
+Salidas:
+    outputs/catalogs/labels.csv
+    outputs/catalogs/labels_calib.csv
+    outputs/catalogs/labels_groups.csv
+    outputs/catalogs/labels_groups_calib.csv
 
 Uso:
     python pipeline/generate_labels.py
@@ -33,7 +27,9 @@ import urllib.request as urlreq
 from collections import Counter
 from pathlib import Path
 
-# ── Leer .env ─────────────────────────────────────────────────────────────────
+import pandas as pd
+
+
 def _load_env(path='.env'):
     env = {}
     try:
@@ -47,29 +43,107 @@ def _load_env(path='.env'):
         pass
     return env
 
-_env         = _load_env()
-SUPABASE_URL = _env.get('SUPABASE_URL', '').rstrip('/')
-ANON_KEY     = _env.get('SUPABASE_ANON_KEY', '')
-CALIB_PAIRS     = 120          # pares de calibración (índices 0–119)
-CALIB_GROUPS    = 80           # grupos de calibración (índices 0–79)
-GROUPS_OFFSET   = 10_000_000   # group_id + GROUPS_OFFSET = id_par en Supabase
-OUTPUT_DIR      = Path('outputs/catalogs')
 
-# ── Supabase ──────────────────────────────────────────────────────────────────
+_env = _load_env()
+SUPABASE_URL = _env.get('SUPABASE_URL', '').rstrip('/')
+ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
+PAIRS_CATALOG = _env.get('PAIRS_CATALOG', '')
+GROUPS_CATALOG = _env.get('GROUPS_CATALOG', '')
+CALIB_PAIRS = 120
+CALIB_GROUPS = 80
+RP_V1_KPC = 20.0
+OUTPUT_DIR = Path('outputs/catalogs')
+
+
+def _infer_catalog_version(path: str) -> str:
+    name = Path(path).name.lower()
+    for version in ('v5_3', 'v5_2', 'v5_1', 'v5', 'v4', 'v3'):
+        if version in name:
+            return version
+    return 'unknown'
+
+
+def _pair_uid(id1, id2) -> str:
+    a, b = sorted((int(id1), int(id2)))
+    return f'{a}:{b}'
+
+
+def _load_pair_lookup(path: str) -> tuple[str, dict[str, dict]]:
+    if not path or not Path(path).exists():
+        return 'unknown', {}
+
+    version = _infer_catalog_version(path)
+    all_cols = pd.read_parquet(path, columns=None).columns
+    required = ['id1', 'id2']
+    optional = ['id_par', 'pair_uid']
+    rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in all_cols), None)
+    cols = required + [c for c in optional if c in all_cols]
+    if rp_col:
+        cols.append(rp_col)
+    pairs = pd.read_parquet(path, columns=cols)
+
+    if 'pair_uid' not in pairs.columns:
+        pairs['pair_uid'] = [_pair_uid(a, b) for a, b in zip(pairs['id1'], pairs['id2'])]
+
+    if rp_col:
+        mask_v1 = pairs[rp_col] < RP_V1_KPC
+        pairs = pd.concat([pairs[mask_v1], pairs[~mask_v1]], ignore_index=True)
+
+    lookup = {}
+    for idx, row in enumerate(pairs.itertuples(index=False)):
+        row_dict = row._asdict()
+        pair_uid = str(row_dict['pair_uid'])
+        id_par_v5 = row_dict.get('id_par') if version.startswith('v5') and 'id_par' in row_dict else None
+        lookup[pair_uid] = {
+            'order': idx,
+            'id_par_v5': int(id_par_v5) if id_par_v5 is not None and not pd.isna(id_par_v5) else None,
+        }
+    return version, lookup
+
+
+def _load_group_lookup(path: str) -> dict[str, dict]:
+    if not path or not Path(path).exists():
+        return {}
+
+    cols = pd.read_parquet(path, columns=None).columns
+    read_cols = ['fof_component_id']
+    if 'stable_system_id' in cols:
+        read_cols.append('stable_system_id')
+    groups = pd.read_parquet(path, columns=read_cols)
+
+    lookup = {}
+    for order, (gid, edges) in enumerate(groups.groupby('fof_component_id')):
+        stable_system_id = None
+        if 'stable_system_id' in edges.columns:
+            values = edges['stable_system_id'].dropna().astype(str).unique()
+            if len(values):
+                stable_system_id = values[0]
+        group_uid = stable_system_id or str(int(gid))
+        lookup[group_uid] = {
+            'order': order,
+            'group_id': int(gid),
+            'stable_system_id': stable_system_id,
+        }
+    return lookup
+
+
 def _fetch_all_classifications() -> list[dict]:
-    """Descarga todas las filas de clasificaciones usando paginación."""
-    rows   = []
-    limit  = 1000
+    rows = []
+    limit = 1000
     offset = 0
+    select = (
+        'device_id,item_type,item_uid,pair_uid,stable_system_id,'
+        'id_par_v5,classification'
+    )
 
     while True:
         url = (
             f'{SUPABASE_URL}/rest/v1/clasificaciones'
-            f'?select=device_id,id_par,classification'
+            f'?select={select}'
             f'&limit={limit}&offset={offset}'
         )
         req = urlreq.Request(url, headers={
-            'apikey':        ANON_KEY,
+            'apikey': ANON_KEY,
             'Authorization': f'Bearer {ANON_KEY}',
         })
         with urlreq.urlopen(req) as resp:
@@ -82,40 +156,38 @@ def _fetch_all_classifications() -> list[dict]:
 
     return rows
 
-# ── Lógica de etiquetas ───────────────────────────────────────────────────────
-def _majority_vote(rows: list[dict]) -> list[dict]:
-    """
-    Agrupa por id_par, aplica mayoría de votos.
-    Devuelve lista de dicts con id_par, classification, n_votes, agreement.
-    Los empates se omiten.
-    """
-    # Agrupar votos por par
-    votes: dict[int, list[str]] = {}
+
+def _majority_vote(rows: list[dict], key_field: str) -> list[dict]:
+    votes: dict[str, list[str]] = {}
+    meta: dict[str, dict] = {}
+
     for row in rows:
-        par_id = int(row['id_par'])
-        votes.setdefault(par_id, []).append(row['classification'])
+        key = row.get(key_field) or row.get('item_uid')
+        if not key:
+            continue
+        key = str(key)
+        votes.setdefault(key, []).append(row['classification'])
+        meta.setdefault(key, row)
 
     results = []
     skipped_ties = 0
 
-    for par_id, labels in sorted(votes.items()):
-        counts   = Counter(labels)
-        n_votes  = len(labels)
-        top_two  = counts.most_common(2)
-
-        # Detectar empate
+    for key, labels in sorted(votes.items()):
+        counts = Counter(labels)
+        n_votes = len(labels)
+        top_two = counts.most_common(2)
         if len(top_two) == 2 and top_two[0][1] == top_two[1][1]:
             skipped_ties += 1
             continue
 
-        winner    = top_two[0][0]
+        winner = top_two[0][0]
         agreement = round(top_two[0][1] / n_votes, 4)
-
         results.append({
-            'id_par':         par_id,
+            key_field: key,
             'classification': winner,
-            'n_votes':        n_votes,
-            'agreement':      agreement,
+            'n_votes': n_votes,
+            'agreement': agreement,
+            '_meta': meta[key],
         })
 
     if skipped_ties:
@@ -123,78 +195,86 @@ def _majority_vote(rows: list[dict]) -> list[dict]:
 
     return results
 
-# ── Escritura CSV ─────────────────────────────────────────────────────────────
-def _write_csv(rows: list[dict], path: Path) -> None:
+
+def _write_csv(rows: list[dict], path: Path, fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ['id_par', 'classification', 'n_votes', 'agreement']
+    clean_rows = [{k: row.get(k) for k in fieldnames} for row in rows]
     with open(path, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
-    print(f'  {len(rows)} pares  →  {path}')
+        writer.writerows(clean_rows)
+    print(f'  {len(rows)} filas -> {path}')
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+
 def main():
     if not SUPABASE_URL or not ANON_KEY:
         print('ERROR: falta SUPABASE_URL o SUPABASE_ANON_KEY en .env')
         sys.exit(1)
 
-    print('Descargando clasificaciones desde Supabase…')
+    catalog_version, pair_lookup = _load_pair_lookup(PAIRS_CATALOG)
+    group_lookup = _load_group_lookup(GROUPS_CATALOG)
+    print(f'Catálogo pares: {PAIRS_CATALOG or "no configurado"}')
+    print(f'  Versión inferida: {catalog_version}')
+    print(f'  Pares en lookup: {len(pair_lookup):,}')
+    print(f'  Grupos en lookup: {len(group_lookup):,}')
+
+    print('Descargando clasificaciones desde Supabase...')
     raw = _fetch_all_classifications()
     print(f'  {len(raw)} filas descargadas')
 
-    # Separar filas de pares y de grupos ANTES de la mayoría de votos
-    raw_pairs  = [r for r in raw if int(r['id_par']) <  GROUPS_OFFSET]
-    raw_groups = [r for r in raw if int(r['id_par']) >= GROUPS_OFFSET]
-
+    raw_pairs = [r for r in raw if r.get('item_type') == 'pair']
+    raw_groups = [r for r in raw if r.get('item_type') == 'group']
     print(f'  Pares: {len(raw_pairs)} votos  |  Grupos: {len(raw_groups)} votos')
 
-    # ── Pares ─────────────────────────────────────────────────────────────────
-    print('Aplicando mayoría de votos (pares)…')
-    labeled_pairs = _majority_vote(raw_pairs)
+    print('Aplicando mayoría de votos (pares)...')
+    labeled_pairs = []
+    for row in _majority_vote(raw_pairs, 'pair_uid'):
+        pair_uid = row['pair_uid']
+        catalog_meta = pair_lookup.get(pair_uid, {})
+        supabase_meta = row.pop('_meta', {})
+        id_par_v5 = supabase_meta.get('id_par_v5')
+        if id_par_v5 is None:
+            id_par_v5 = catalog_meta.get('id_par_v5')
+        labeled_pairs.append({
+            'pair_uid': pair_uid,
+            'id_par_v5': int(id_par_v5) if id_par_v5 is not None and not pd.isna(id_par_v5) else None,
+            'classification': row['classification'],
+            'n_votes': row['n_votes'],
+            'agreement': row['agreement'],
+            '_order': catalog_meta.get('order'),
+        })
 
-    # Separar calibración (id_par < CALIB_PAIRS) y trabajo
-    calib = [r for r in labeled_pairs if r['id_par'] <  CALIB_PAIRS]
-    work  = [r for r in labeled_pairs if r['id_par'] >= CALIB_PAIRS]
+    pair_fields = ['pair_uid', 'id_par_v5', 'classification', 'n_votes', 'agreement']
+    calib_pairs = [r for r in labeled_pairs if r.get('_order') is not None and r['_order'] < CALIB_PAIRS]
+    work_pairs = [r for r in labeled_pairs if r.get('_order') is None or r['_order'] >= CALIB_PAIRS]
+    print('Escribiendo archivos de pares...')
+    _write_csv(work_pairs, OUTPUT_DIR / 'labels.csv', pair_fields)
+    _write_csv(calib_pairs, OUTPUT_DIR / 'labels_calib.csv', pair_fields)
 
-    print('Escribiendo archivos de pares…')
-    _write_csv(work,  OUTPUT_DIR / 'labels.csv')
-    _write_csv(calib, OUTPUT_DIR / 'labels_calib.csv')
+    print('Aplicando mayoría de votos (grupos)...')
+    labeled_groups = []
+    for row in _majority_vote(raw_groups, 'stable_system_id'):
+        group_uid = row['stable_system_id']
+        catalog_meta = group_lookup.get(group_uid, {})
+        row.pop('_meta', None)
+        stable_system_id = catalog_meta.get('stable_system_id') or group_uid
+        labeled_groups.append({
+            'group_uid': group_uid,
+            'stable_system_id': stable_system_id,
+            'group_id': catalog_meta.get('group_id'),
+            'classification': row['classification'],
+            'n_votes': row['n_votes'],
+            'agreement': row['agreement'],
+            '_order': catalog_meta.get('order'),
+        })
 
-    # ── Grupos ────────────────────────────────────────────────────────────────
-    if raw_groups:
-        print('Aplicando mayoría de votos (grupos)…')
-        labeled_groups_raw = _majority_vote(raw_groups)
+    group_fields = ['group_uid', 'stable_system_id', 'group_id', 'classification', 'n_votes', 'agreement']
+    calib_groups = [r for r in labeled_groups if r.get('_order') is not None and r['_order'] < CALIB_GROUPS]
+    work_groups = [r for r in labeled_groups if r.get('_order') is None or r['_order'] >= CALIB_GROUPS]
+    print('Escribiendo archivos de grupos...')
+    _write_csv(work_groups, OUTPUT_DIR / 'labels_groups.csv', group_fields)
+    _write_csv(calib_groups, OUTPUT_DIR / 'labels_groups_calib.csv', group_fields)
 
-        # Revertir el desplazamiento: group_id = id_par - GROUPS_OFFSET
-        labeled_groups = []
-        for r in labeled_groups_raw:
-            labeled_groups.append({
-                'group_id':       r['id_par'] - GROUPS_OFFSET,
-                'classification': r['classification'],
-                'n_votes':        r['n_votes'],
-                'agreement':      r['agreement'],
-            })
-
-        # Separar calibración (group_id < CALIB_GROUPS) y trabajo
-        calib_groups = [r for r in labeled_groups if r['group_id'] <  CALIB_GROUPS]
-        work_groups  = [r for r in labeled_groups if r['group_id'] >= CALIB_GROUPS]
-
-        fieldnames = ['group_id', 'classification', 'n_votes', 'agreement']
-        for rows, path in [
-            (work_groups,  OUTPUT_DIR / 'labels_groups.csv'),
-            (calib_groups, OUTPUT_DIR / 'labels_groups_calib.csv'),
-        ]:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
-            print(f'  {len(rows)} grupos  →  {path}')
-    else:
-        print('  Sin clasificaciones de grupos aún.')
-
-    print('Listo.')
 
 if __name__ == '__main__':
     main()

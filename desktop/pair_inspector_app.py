@@ -59,7 +59,11 @@ def _fetch_partition(device_id: str) -> 'dict | None':
         return None
 
 
-def _supabase_upsert(id_par: int, classification: str, on_error=None):
+def _supabase_upsert(item_type: str, item_uid: str, classification: str,
+                     pair_uid: 'str | None' = None,
+                     stable_system_id: 'str | None' = None,
+                     id_par_v5: 'int | None' = None,
+                     on_error=None):
     """Upserts a single classification to Supabase in a background thread.
     on_error: optional callable(msg) invoked on failure (runs in bg thread — use root.after)."""
     if not _SUPA_URL or not _SUPA_ANON_KEY:
@@ -67,19 +71,23 @@ def _supabase_upsert(id_par: int, classification: str, on_error=None):
     def _do():
         try:
             r = requests.post(
-                f'{_SUPA_URL}/rest/v1/clasificaciones',
+                f'{_SUPA_URL}/rest/v1/rpc/upsert_classification',
                 headers={
                     'apikey':        _SUPA_ANON_KEY,
                     'Authorization': f'Bearer {_SUPA_ANON_KEY}',
                     'Content-Type':  'application/json',
-                    'Prefer':        'resolution=merge-duplicates,return=minimal',
                 },
-                json=[{
-                    'device_id':      DESKTOP_DEVICE_ID,
-                    'id_par':         id_par,
-                    'classification': classification,
-                    'exported_at':    datetime.now().isoformat(),
-                }],
+                json={
+                    'p_device_id':        DESKTOP_DEVICE_ID,
+                    'p_item_type':        item_type,
+                    'p_item_uid':         item_uid,
+                    'p_pair_uid':         pair_uid,
+                    'p_stable_system_id': stable_system_id,
+                    'p_id_par_v5':        id_par_v5,
+                    'p_classification':   classification,
+                    'p_source':           'v5_3_app',
+                    'p_exported_at':      datetime.now().isoformat(),
+                },
                 timeout=10,
             )
             if not r.ok and on_error:
@@ -144,6 +152,41 @@ TEXT_COLOR     = (255, 255, 50)
 # Registro de errores de descarga: (ra_mid, dec_mid) → mensaje de error
 _fetch_errors: dict = {}
 
+
+def _make_pair_uid(id1, id2) -> str:
+    a, b = sorted((int(id1), int(id2)))
+    return f'{a}:{b}'
+
+
+def _pair_uid_from_row(row: dict) -> str:
+    if row.get('pair_uid'):
+        return str(row['pair_uid'])
+    return _make_pair_uid(row['id1'], row['id2'])
+
+
+def _pair_display_id(row: dict):
+    if row.get('id_par_v5') is not None:
+        return row.get('id_par_v5')
+    return row.get('id_par')
+
+
+def _pair_file_key(row: dict) -> str:
+    return _pair_uid_from_row(row).replace(':', '_')
+
+
+def _group_uid_from_row(row: dict) -> str:
+    for key in ('stable_system_id', 'group_uid'):
+        value = row.get(key)
+        if value is not None and not pd.isna(value):
+            return str(value)
+    return str(int(row['group_id']))
+
+
+def _clean_str_or_none(value):
+    if value is None or pd.isna(value):
+        return None
+    return str(value)
+
 # Color neutro para los botones de clasificación (mismo en activo e inactivo)
 BTN_GRAY     = '#484848'
 
@@ -175,11 +218,16 @@ GROUP_MEMBER_COLORS = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _load_groups_from_edges(path: str) -> pd.DataFrame:
-    """Lee DESI_v3_groups.parquet (aristas FoF) y devuelve un DataFrame con
+    """Lee el catálogo de grupos (aristas FoF) y devuelve un DataFrame con
     una fila por componente, usando fof_component_id como clave."""
     df = pd.read_parquet(path)
     records = []
     for gid, edges in df.groupby('fof_component_id'):
+        stable_system_id = None
+        if 'stable_system_id' in edges.columns:
+            stable_values = edges['stable_system_id'].dropna().astype(str).unique()
+            if len(stable_values):
+                stable_system_id = stable_values[0]
         half1 = edges[['id1', 'ra1', 'dec1', 'z1']].rename(
             columns={'id1': 'id', 'ra1': 'ra', 'dec1': 'dec', 'z1': 'z'})
         half2 = edges[['id2', 'ra2', 'dec2', 'z2']].rename(
@@ -187,6 +235,8 @@ def _load_groups_from_edges(path: str) -> pd.DataFrame:
         members = pd.concat([half1, half2]).drop_duplicates('id')
         records.append({
             'group_id':       int(gid),
+            'stable_system_id': stable_system_id,
+            'group_uid':      stable_system_id or str(int(gid)),
             'n_members':      len(members),
             'ra_center':      float(members['ra'].mean()),
             'dec_center':     float(members['dec'].mean()),
@@ -339,8 +389,9 @@ def annotate_image(img: Image.Image, row: dict, rp_col: 'str | None') -> Image.I
     margin = 4
 
     # ID del par — arriba izquierda
-    if 'id_par' in row:
-        id_label = f'par #{int(row["id_par"])}'
+    display_id = _pair_display_id(row)
+    if display_id is not None:
+        id_label = f'id_par_v5 #{int(display_id)}' if row.get('id_par_v5') is not None else f'par #{int(display_id)}'
         draw.rectangle([margin-2, margin-2,
                         margin + len(id_label)*CH + 2, margin + 10],
                        fill=(0, 0, 0, 200))
@@ -581,6 +632,27 @@ class PairValidator:
         if missing := required - set(df_full.columns):
             raise ValueError(f'Faltan columnas en el catálogo: {missing}')
 
+        if 'pair_uid' not in df_full.columns:
+            df_full['pair_uid'] = [
+                _make_pair_uid(a, b) for a, b in zip(df_full['id1'], df_full['id2'])
+            ]
+        else:
+            expected = [
+                _make_pair_uid(a, b) for a, b in zip(df_full['id1'], df_full['id2'])
+            ]
+            bad_pair_uid = df_full['pair_uid'].astype(str).ne(expected).sum()
+            if bad_pair_uid:
+                raise ValueError(f'El catálogo tiene {bad_pair_uid} pair_uid inconsistentes con id1/id2')
+
+        if df_full['pair_uid'].duplicated().any():
+            dup = int(df_full['pair_uid'].duplicated().sum())
+            raise ValueError(f'El catálogo tiene pair_uid duplicados: {dup}')
+
+        catalog_name = Path(catalog_path).name.lower()
+        if 'id_par' in df_full.columns and 'id_par_v5' not in df_full.columns and 'v5' in catalog_name:
+            df_full['id_par_v5'] = df_full['id_par']
+        self.pair_cloud_sync_enabled = True
+
         self.rp_col = None
         for col in ('rp_kpc', 'rp_phys_kpc', 'rp'):
             if col in df_full.columns:
@@ -665,6 +737,15 @@ class PairValidator:
             self.possible_mergers = []
             self.confirmed_pairs  = []
             self.pending_retry    = []
+        for bucket in (
+            self.false_positives,
+            self.possible_mergers,
+            self.confirmed_pairs,
+            self.pending_retry,
+        ):
+            for entry in bucket:
+                if 'pair_uid' not in entry and 'id1' in entry and 'id2' in entry:
+                    entry['pair_uid'] = _make_pair_uid(entry['id1'], entry['id2'])
 
     def save_progress(self):
         Path(self.progress_file).parent.mkdir(parents=True, exist_ok=True)
@@ -710,114 +791,112 @@ class PairValidator:
 
     # ── Pending retry ─────────────────────────────────────────────────────────
 
+    def _entry_key(self, entry: dict) -> str:
+        if entry.get('pair_uid'):
+            return str(entry['pair_uid'])
+        return _make_pair_uid(entry['id1'], entry['id2'])
+
+    def _row_key(self, row: dict) -> str:
+        return _pair_uid_from_row(row)
+
+    def _contains_row(self, entries: list[dict], row: dict) -> bool:
+        key = self._row_key(row)
+        return any(self._entry_key(e) == key for e in entries)
+
+    def _without_row(self, entries: list[dict], row: dict) -> list[dict]:
+        key = self._row_key(row)
+        return [e for e in entries if self._entry_key(e) != key]
+
     def add_pending(self, row: dict):
-        id1, id2 = int(row['id1']), int(row['id2'])
-        if any(e['id1'] == id1 and e['id2'] == id2 for e in self.pending_retry):
+        if self._contains_row(self.pending_retry, row):
             return
         if self.is_false_positive(row) or self.is_possible_merger(row) or self.is_confirmed_pair(row):
             return
         self.pending_retry.append({
-            'id1'   : id1,   'id2'  : id2,
-            'id_par': int(row['id_par']) if 'id_par' in row else None,
-            'ra1'   : float(row['ra1']), 'dec1': float(row['dec1']),
-            'ra2'   : float(row['ra2']), 'dec2': float(row['dec2']),
-            'rp_kpc': float(row[self.rp_col]) if self.rp_col and self.rp_col in row else None,
+            'pair_uid'  : self._row_key(row),
+            'id1'       : int(row['id1']),
+            'id2'       : int(row['id2']),
+            'id_par_v5' : int(row['id_par_v5']) if 'id_par_v5' in row else None,
+            'id_par'    : int(row['id_par']) if 'id_par' in row else None,
+            'ra1'       : float(row['ra1']), 'dec1': float(row['dec1']),
+            'ra2'       : float(row['ra2']), 'dec2': float(row['dec2']),
+            'rp_kpc'    : float(row[self.rp_col]) if self.rp_col and self.rp_col in row else None,
         })
 
     def remove_pending(self, row: dict):
-        id1, id2 = int(row['id1']), int(row['id2'])
-        self.pending_retry = [
-            e for e in self.pending_retry
-            if not (e['id1'] == id1 and e['id2'] == id2)
-        ]
+        self.pending_retry = self._without_row(self.pending_retry, row)
 
     # ── Rutas de imagen ───────────────────────────────────────────────────────
 
     def _par_id(self, row: dict):
-        return int(row['id_par']) if 'id_par' in row else f"{int(row['id1'])}_{int(row['id2'])}"
+        return _pair_file_key(row)
 
     def _row_record(self, row: dict, img_path: Path) -> dict:
         return {
-            'id1'     : int(row['id1']),
-            'id2'     : int(row['id2']),
-            'id_par'  : int(row['id_par']) if 'id_par' in row else None,
-            'ra1'     : float(row['ra1']),  'dec1': float(row['dec1']),
-            'ra2'     : float(row['ra2']),  'dec2': float(row['dec2']),
-            'rp_kpc'  : float(row[self.rp_col]) if self.rp_col and self.rp_col in row else None,
-            'img_path': str(img_path),
+            'pair_uid'  : self._row_key(row),
+            'id1'       : int(row['id1']),
+            'id2'       : int(row['id2']),
+            'id_par_v5' : int(row['id_par_v5']) if 'id_par_v5' in row else None,
+            'id_par'    : int(row['id_par']) if 'id_par' in row else None,
+            'ra1'       : float(row['ra1']),  'dec1': float(row['dec1']),
+            'ra2'       : float(row['ra2']),  'dec2': float(row['dec2']),
+            'rp_kpc'    : float(row[self.rp_col]) if self.rp_col and self.rp_col in row else None,
+            'img_path'  : str(img_path),
         }
 
     # ── Clasificación: Falso positivo ─────────────────────────────────────────
 
     def mark_false_positive(self, row: dict, img: Image.Image):
-        id1, id2 = int(row['id1']), int(row['id2'])
-        if not any(e['id1'] == id1 and e['id2'] == id2 for e in self.false_positives):
+        if not self._contains_row(self.false_positives, row):
             path = self.fp_img_dir / f'par_{self._par_id(row)}.jpg'
             self.false_positives.append(self._row_record(row, path))
             img.save(path, format='JPEG', quality=92)
         self.remove_pending(row)
 
     def unmark_false_positive(self, row: dict):
-        id1, id2 = int(row['id1']), int(row['id2'])
         path = self.fp_img_dir / f'par_{self._par_id(row)}.jpg'
-        self.false_positives = [
-            e for e in self.false_positives
-            if not (e['id1'] == id1 and e['id2'] == id2)
-        ]
+        self.false_positives = self._without_row(self.false_positives, row)
         if path.exists():
             path.unlink()
 
     def is_false_positive(self, row: dict) -> bool:
-        id1, id2 = int(row['id1']), int(row['id2'])
-        return any(e['id1'] == id1 and e['id2'] == id2 for e in self.false_positives)
+        return self._contains_row(self.false_positives, row)
 
     # ── Clasificación: Posible merger ─────────────────────────────────────────
 
     def mark_possible_merger(self, row: dict, img: Image.Image):
-        id1, id2 = int(row['id1']), int(row['id2'])
-        if not any(e['id1'] == id1 and e['id2'] == id2 for e in self.possible_mergers):
+        if not self._contains_row(self.possible_mergers, row):
             path = self.pm_img_dir / f'par_{self._par_id(row)}.jpg'
             self.possible_mergers.append(self._row_record(row, path))
             img.save(path, format='JPEG', quality=92)
         self.remove_pending(row)
 
     def unmark_possible_merger(self, row: dict):
-        id1, id2 = int(row['id1']), int(row['id2'])
         path = self.pm_img_dir / f'par_{self._par_id(row)}.jpg'
-        self.possible_mergers = [
-            e for e in self.possible_mergers
-            if not (e['id1'] == id1 and e['id2'] == id2)
-        ]
+        self.possible_mergers = self._without_row(self.possible_mergers, row)
         if path.exists():
             path.unlink()
 
     def is_possible_merger(self, row: dict) -> bool:
-        id1, id2 = int(row['id1']), int(row['id2'])
-        return any(e['id1'] == id1 and e['id2'] == id2 for e in self.possible_mergers)
+        return self._contains_row(self.possible_mergers, row)
 
     # ── Clasificación: Par confirmado ─────────────────────────────────────────
 
     def mark_confirmed_pair(self, row: dict, img: Image.Image):
-        id1, id2 = int(row['id1']), int(row['id2'])
-        if not any(e['id1'] == id1 and e['id2'] == id2 for e in self.confirmed_pairs):
+        if not self._contains_row(self.confirmed_pairs, row):
             path = self.pair_img_dir / f'par_{self._par_id(row)}.jpg'
             self.confirmed_pairs.append(self._row_record(row, path))
             img.save(path, format='JPEG', quality=92)
         self.remove_pending(row)
 
     def unmark_confirmed_pair(self, row: dict):
-        id1, id2 = int(row['id1']), int(row['id2'])
         path = self.pair_img_dir / f'par_{self._par_id(row)}.jpg'
-        self.confirmed_pairs = [
-            e for e in self.confirmed_pairs
-            if not (e['id1'] == id1 and e['id2'] == id2)
-        ]
+        self.confirmed_pairs = self._without_row(self.confirmed_pairs, row)
         if path.exists():
             path.unlink()
 
     def is_confirmed_pair(self, row: dict) -> bool:
-        id1, id2 = int(row['id1']), int(row['id2'])
-        return any(e['id1'] == id1 and e['id2'] == id2 for e in self.confirmed_pairs)
+        return self._contains_row(self.confirmed_pairs, row)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -833,11 +912,8 @@ class GroupValidator:
         possible_mergers  → grupos ambiguos / posibles mergers
 
     Las clasificaciones se guardan en progress_groups.json (local) y
-    opcionalmente en Supabase usando group_id + 10_000_000 como id_par
-    para evitar colisión con los pares.
+    opcionalmente en Supabase usando item_type='group' y stable_system_id/group_uid.
     """
-
-    SUPABASE_OFFSET = 10_000_000   # desplazamiento para separar ids de grupos en Supabase
 
     def __init__(self, catalog_path, progress_file,
                  group_img_dir, group_fp_img_dir, group_pm_img_dir,
@@ -855,6 +931,8 @@ class GroupValidator:
         if not Path(catalog_path).exists():
             raise FileNotFoundError(
                 f'No se encontró el catálogo de grupos:\n{catalog_path}')
+
+        self.group_cloud_sync_enabled = True
 
         # print('Construyendo catálogo de grupos desde aristas FoF…')
         df = _load_groups_from_edges(catalog_path)
@@ -955,6 +1033,8 @@ class GroupValidator:
     def _row_record(self, row: dict, img_path: Path) -> dict:
         return {
             'group_id':       self._group_id(row),
+            'stable_system_id': _clean_str_or_none(row.get('stable_system_id')),
+            'group_uid':      _group_uid_from_row(row),
             'n_members':      int(row.get('n_members', 0)),
             'ra_center':      float(row.get('ra_center', 0)),
             'dec_center':     float(row.get('dec_center', 0)),
@@ -1064,9 +1144,11 @@ class GroupValidator:
                 self.is_possible_pair(row)):
             return
         self.pending_retry.append({
-            'group_id':   gid,
-            'ra_center':  float(row.get('ra_center', 0)),
-            'dec_center': float(row.get('dec_center', 0)),
+            'group_id':         gid,
+            'stable_system_id': _clean_str_or_none(row.get('stable_system_id')),
+            'group_uid':        _group_uid_from_row(row),
+            'ra_center':        float(row.get('ra_center', 0)),
+            'dec_center':       float(row.get('dec_center', 0)),
         })
 
     def _remove_pending(self, row: dict):
@@ -1501,7 +1583,7 @@ class PairInspectorApp:
         # ── Barra de búsqueda por ID de par ───────────────────────────────────
         tk.Frame(top, bg='#444444', width=1).pack(side='left', fill='y',
                                                    padx=8, pady=2)
-        tk.Label(top, text='Go to #', bg='#111111', fg='#aaaaaa',
+        tk.Label(top, text='Go to ID', bg='#111111', fg='#aaaaaa',
                  font=('Arial', 11)).pack(side='left')
         self._search_var = tk.StringVar()
         search_entry = tk.Entry(top, textvariable=self._search_var,
@@ -1576,12 +1658,44 @@ class PairInspectorApp:
 
     # ── Cloud sync helper ─────────────────────────────────────────────────────
 
-    def _cloud_upsert(self, id_par: int, classification: str):
+    def _cloud_upsert(self, item_type: str, item_uid: str, classification: str,
+                      pair_uid: 'str | None' = None,
+                      stable_system_id: 'str | None' = None,
+                      id_par_v5: 'int | None' = None):
         """Llama a _supabase_upsert con callback que muestra errores en la status bar."""
         def _on_error(msg):
             self.root.after(0, lambda: self.lbl_status.config(
                 text=f'⚠ {msg}', fg='#ffaa44'))
-        _supabase_upsert(id_par, classification, on_error=_on_error)
+        _supabase_upsert(
+            item_type=item_type,
+            item_uid=item_uid,
+            classification=classification,
+            pair_uid=pair_uid,
+            stable_system_id=stable_system_id,
+            id_par_v5=id_par_v5,
+            on_error=_on_error,
+        )
+
+    def _cloud_upsert_pair(self, row: dict, classification: str):
+        pair_uid = _pair_uid_from_row(row)
+        raw_id_par_v5 = row.get('id_par_v5')
+        id_par_v5 = int(raw_id_par_v5) if raw_id_par_v5 is not None and not pd.isna(raw_id_par_v5) else None
+        self._cloud_upsert(
+            item_type='pair',
+            item_uid=pair_uid,
+            pair_uid=pair_uid,
+            id_par_v5=id_par_v5,
+            classification=classification,
+        )
+
+    def _cloud_upsert_group(self, row: dict, classification: str):
+        group_uid = _group_uid_from_row(row)
+        self._cloud_upsert(
+            item_type='group',
+            item_uid=group_uid,
+            stable_system_id=group_uid,
+            classification=classification,
+        )
 
     # ── Actualización de barra de estado ──────────────────────────────────────
 
@@ -1975,14 +2089,12 @@ class PairInspectorApp:
                     gv.unmark_confirmed_group(row)
                     gv.unmark_possible_merger(row)
 
-            # Supabase: usa group_id + OFFSET para no colisionar con pares
             gid = int(row.get('group_id', 0))
-            if gid:
-                supa_id = gid + GroupValidator.SUPABASE_OFFSET
-                if   gv.is_false_positive(row):   self._cloud_upsert(supa_id, 'FP')
-                elif gv.is_confirmed_group(row):   self._cloud_upsert(supa_id, 'GROUP')
-                elif gv.is_possible_merger(row):   self._cloud_upsert(supa_id, 'PM')
-                elif gv.is_possible_pair(row):     self._cloud_upsert(supa_id, 'PP')
+            if gid and gv.group_cloud_sync_enabled:
+                if   gv.is_false_positive(row):   self._cloud_upsert_group(row, 'FP')
+                elif gv.is_confirmed_group(row):   self._cloud_upsert_group(row, 'GROUP')
+                elif gv.is_possible_merger(row):   self._cloud_upsert_group(row, 'PM')
+                elif gv.is_possible_pair(row):     self._cloud_upsert_group(row, 'PP')
 
             cell._update_btn_state(gv)
             self._update_status_bar()
@@ -2014,11 +2126,10 @@ class PairInspectorApp:
                     pv.unmark_confirmed_pair(row)
 
             # Supabase
-            id_par = int(row.get('id_par', 0))
-            if id_par:
-                if   pv.is_false_positive(row):   self._cloud_upsert(id_par, 'FP')
-                elif pv.is_confirmed_pair(row):    self._cloud_upsert(id_par, 'Pair')
-                elif pv.is_possible_merger(row):   self._cloud_upsert(id_par, 'PM')
+            if pv.pair_cloud_sync_enabled:
+                if   pv.is_false_positive(row):   self._cloud_upsert_pair(row, 'FP')
+                elif pv.is_confirmed_pair(row):    self._cloud_upsert_pair(row, 'Pair')
+                elif pv.is_possible_merger(row):   self._cloud_upsert_pair(row, 'PM')
 
             cell._update_btn_state(pv)
             self._update_status_bar()
@@ -2067,7 +2178,7 @@ class PairInspectorApp:
 
         # Feedback inmediato
         cell.btn_retry_img.config(text='⏳  Descargando…', state='disabled')
-        self.lbl_status.config(text=f'Reintentando par #{rd.get("id_par", "?")}…')
+        self.lbl_status.config(text=f'Reintentando par {_pair_display_id(rd) or _pair_uid_from_row(rd)}…')
         self.root.update_idletasks()
 
         def _do():
@@ -2285,35 +2396,42 @@ class PairInspectorApp:
         query = self._search_var.get().strip()
         if not query:
             return
-        try:
-            target_id = int(query)
-        except ValueError:
-            messagebox.showwarning('Búsqueda', 'Escribe un número entero (ej. 10).')
-            return
+        target_pair_uid = query if ':' in query else None
+        target_id = None
+        if target_pair_uid is None:
+            try:
+                target_id = int(query)
+            except ValueError:
+                messagebox.showwarning('Búsqueda', 'Escribe un id_par_v5, group_id o pair_uid.')
+                return
 
         found = []
 
-        # ── Buscar como id_par ────────────────────────────────────────────────
+        # ── Buscar como pair_uid o id_par_v5/display ─────────────────────────
         pv  = self._pair_validator
-        col = 'id_par' if 'id_par' in pv.df_full.columns else None
-        if col:
-            mask = pv.df_full[col] == target_id
-            if mask.any():
-                rd = pv.df_full[mask].iloc[0].to_dict()
-                if 'sep_arcsec' not in rd or pd.isna(rd.get('sep_arcsec', float('nan'))):
-                    rd['sep_arcsec'] = float(np.hypot(
-                        (rd['ra1']-rd['ra2'])*np.cos(np.radians(
-                            (rd['dec1']+rd['dec2'])/2))*3600,
-                        (rd['dec1']-rd['dec2'])*3600))
-                in_partition = (pv.df[col] == target_id).any()
-                if not in_partition:
-                    self.lbl_status.config(
-                        text=f'#{target_id} — par fuera de partición + busca grupo…')
-                found.append(('pair', rd))
+        if target_pair_uid is not None:
+            mask = pv.df_full['pair_uid'].astype(str) == target_pair_uid
+            in_partition = (pv.df['pair_uid'].astype(str) == target_pair_uid).any()
+        else:
+            col = 'id_par_v5' if 'id_par_v5' in pv.df_full.columns else ('id_par' if 'id_par' in pv.df_full.columns else None)
+            mask = pv.df_full[col] == target_id if col else pd.Series(False, index=pv.df_full.index)
+            in_partition = (pv.df[col] == target_id).any() if col else False
+
+        if mask.any():
+            rd = pv.df_full[mask].iloc[0].to_dict()
+            if 'sep_arcsec' not in rd or pd.isna(rd.get('sep_arcsec', float('nan'))):
+                rd['sep_arcsec'] = float(np.hypot(
+                    (rd['ra1']-rd['ra2'])*np.cos(np.radians(
+                        (rd['dec1']+rd['dec2'])/2))*3600,
+                    (rd['dec1']-rd['dec2'])*3600))
+            if not in_partition:
+                self.lbl_status.config(
+                    text=f'{query} — par fuera de partición + busca grupo…')
+            found.append(('pair', rd))
 
         # ── Buscar como group_id ──────────────────────────────────────────────
         gv = self._group_validator
-        if gv is not None:
+        if gv is not None and target_id is not None:
             gmask = gv.df_full['group_id'] == target_id
             if gmask.any():
                 rd = gv.df_full[gmask].iloc[0].to_dict()
@@ -2325,11 +2443,11 @@ class PairInspectorApp:
         if not found:
             messagebox.showwarning(
                 'Búsqueda',
-                f'#{target_id} no encontrado como id_par ni como group_id.')
+                f'{query} no encontrado como pair_uid, id_par_v5 ni group_id.')
             return
 
         labels = ' + '.join('par' if t == 'pair' else 'grupo' for t, _ in found)
-        self.lbl_status.config(text=f'#{target_id} → {labels}')
+        self.lbl_status.config(text=f'{query} → {labels}')
 
         # Abrir una ventana por cada resultado encontrado
         for kind, rd in found:
@@ -2429,11 +2547,11 @@ class PairInspectorApp:
                     gv.unmark_confirmed_group(row_data)
                     gv.unmark_possible_merger(row_data)
             gv.save_progress()
-            supa_id = gid + GroupValidator.SUPABASE_OFFSET
-            if   gv.is_false_positive(row_data):  self._cloud_upsert(supa_id, 'FP')
-            elif gv.is_confirmed_group(row_data):  self._cloud_upsert(supa_id, 'GROUP')
-            elif gv.is_possible_merger(row_data):  self._cloud_upsert(supa_id, 'PM')
-            elif gv.is_possible_pair(row_data):    self._cloud_upsert(supa_id, 'PP')
+            if gv.group_cloud_sync_enabled:
+                if   gv.is_false_positive(row_data):  self._cloud_upsert_group(row_data, 'FP')
+                elif gv.is_confirmed_group(row_data):  self._cloud_upsert_group(row_data, 'GROUP')
+                elif gv.is_possible_merger(row_data):  self._cloud_upsert_group(row_data, 'PM')
+                elif gv.is_possible_pair(row_data):    self._cloud_upsert_group(row_data, 'PP')
             _refresh_state()
             self._update_status_bar()
 
@@ -2528,7 +2646,8 @@ class PairInspectorApp:
 
     def _open_detail_window(self, row_data: dict):
         """Ventana emergente con imagen ampliada, clasificación y acceso al Sky Viewer."""
-        par_id  = row_data.get('id_par', f"{int(row_data['id1'])}_{int(row_data['id2'])}")
+        pair_uid = _pair_uid_from_row(row_data)
+        par_id = _pair_display_id(row_data)
         ra_mid  = (row_data['ra1'] + row_data['ra2']) / 2.0
         dec_mid = (row_data['dec1'] + row_data['dec2']) / 2.0
         rp_val  = row_data.get(self.v.rp_col) if self.v.rp_col else None
@@ -2536,7 +2655,8 @@ class PairInspectorApp:
         DETAIL_PX = 520   # tamaño de la imagen en la ventana de detalle
 
         win = tk.Toplevel(self.root)
-        win.title(f'Detalle — Par #{par_id}')
+        title_id = f'id_par_v5 #{int(par_id)}' if par_id is not None else pair_uid
+        win.title(f'Detalle — Par {title_id}')
         win.configure(bg='#111111')
         win.resizable(False, False)
 
@@ -2555,14 +2675,15 @@ class PairInspectorApp:
 
         # ── Coordenadas copiables ─────────────────────────────────────────────
         coord_var = tk.StringVar()
+        id_text = f'id_par_v5 {int(par_id)}  ' if par_id is not None else ''
         if rp_val is not None:
-            coord_var.set(f'RA {ra_mid:.5f}  Dec {dec_mid:.5f}  rp={rp_val:.2f} kpc')
+            coord_var.set(f'{id_text}pair_uid {pair_uid}  RA {ra_mid:.5f}  Dec {dec_mid:.5f}  rp={rp_val:.2f} kpc')
         else:
-            coord_var.set(f'RA {ra_mid:.5f}  Dec {dec_mid:.5f}')
+            coord_var.set(f'{id_text}pair_uid {pair_uid}  RA {ra_mid:.5f}  Dec {dec_mid:.5f}')
         tk.Entry(win, textvariable=coord_var, state='readonly',
                  readonlybackground='#141414', fg='#eeeeee',
                  font=('Courier', 12), relief='flat',
-                 justify='center', cursor='xterm', width=42
+                 justify='center', cursor='xterm', width=78
                  ).pack(pady=(4, 0))
 
         # ── Estado de clasificación ───────────────────────────────────────────
@@ -2620,11 +2741,10 @@ class PairInspectorApp:
                     self.v.unmark_confirmed_pair(row_data)
             self.v.save_progress()
             # Auto-save to Supabase in background
-            _id = int(row_data.get('id_par', 0))
-            if _id:
-                if   self.v.is_false_positive(row_data):  self._cloud_upsert(_id, 'FP')
-                elif self.v.is_confirmed_pair(row_data):   self._cloud_upsert(_id, 'Pair')
-                elif self.v.is_possible_merger(row_data):  self._cloud_upsert(_id, 'PM')
+            if self.v.pair_cloud_sync_enabled:
+                if   self.v.is_false_positive(row_data):  self._cloud_upsert_pair(row_data, 'FP')
+                elif self.v.is_confirmed_pair(row_data):   self._cloud_upsert_pair(row_data, 'Pair')
+                elif self.v.is_possible_merger(row_data):  self._cloud_upsert_pair(row_data, 'PM')
             _refresh_state()
             self._update_status_bar()
 

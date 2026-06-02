@@ -896,8 +896,9 @@
   const IMG_TIMEOUT_MS     = 22000;  // mostrar acciones si Legacy Survey tarda demasiado
   const IMG_RETRY_DELAY_MS = 1500;   // espera entre reintento silencioso tras 429/error
   const IMG_MAX_RETRIES    = 2;      // reintentos silenciosos antes de mostrar UI de error
-  const STORAGE_KEY        = 'galaxyPairsInspector_v3';  // bump version to reset
-  const GROUP_OFFSET       = 10_000_000;                 // same as desktop
+  const CATALOG_VERSION    = (window._CATALOG && window._CATALOG.catalog_version) || 'v3';
+  const CLOUD_SYNC         = !window._CATALOG || window._CATALOG.cloud_sync_enabled !== false;
+  const STORAGE_KEY        = `galaxyPairsInspector_${CATALOG_VERSION}`;
   const MAX_GROUP_MARKERS  = 8;
   const GROUP_COLORS       = [
     [255, 90,  90],  [80,  190, 255], [100, 255, 100], [255, 200, 50],
@@ -909,7 +910,7 @@
   // ═══════════════════════════════════════════════════════════════════════
   let catalog          = [];   // array mezclado de pares y grupos
   let classifications  = {};   // itemKey → 'FP'|'Pair'|'PM'|'GROUP'  (mobile)
-  let desktopCl        = {};   // id_par(str) → classification  (from desktop, pairs only)
+  let desktopCl        = {};   // pair key → classification  (from desktop, pairs only)
   let currentIndex     = 0;
   let autoAdvanceTimer = null;
   let _imgTimer        = null;   // global — un solo timer de timeout de imagen activo
@@ -927,7 +928,29 @@
 
   // ── helpers tipo item ───────────────────────────────────────────────────
   function isGroup(item)  { return !!item.group_id; }
-  function itemKey(item)  { return isGroup(item) ? 'g_' + item.group_id : String(item.id_par); }
+  function pairKey(item)  { return String(item.pair_uid || item.id_par); }
+  function groupKey(item) { return String(item.group_uid || item.stable_system_id || item.group_id); }
+  function itemType(item) { return isGroup(item) ? 'group' : 'pair'; }
+  function itemUid(item)  { return isGroup(item) ? groupKey(item) : pairKey(item); }
+  function itemKey(item)  { return `${itemType(item)}:${itemUid(item)}`; }
+  function pairDisplayId(item) {
+    return item.id_par_v5 !== undefined ? item.id_par_v5 : item.id_par;
+  }
+  function cloudRowForItem(item, classification) {
+    const type = itemType(item);
+    const uid = itemUid(item);
+    return {
+      device_id: deviceId,
+      item_type: type,
+      item_uid: uid,
+      pair_uid: type === 'pair' ? uid : null,
+      stable_system_id: type === 'group' ? uid : null,
+      id_par_v5: type === 'pair' ? pairDisplayId(item) : null,
+      classification,
+      source: 'v5_3_app',
+      exported_at: new Date().toISOString(),
+    };
+  }
   function getCl(item) {
     const k = itemKey(item);
     if (classifications[k]) return classifications[k];
@@ -1423,13 +1446,13 @@
       const sep = item.sep_arcsec !== undefined ? `${item.sep_arcsec.toFixed(1)}"` : '—';
       const z1  = item.z1   !== undefined ? item.z1.toFixed(4) : '—';
       const z2  = item.z2   !== undefined ? item.z2.toFixed(4) : '—';
+      const displayId = pairDisplayId(item);
       headerHTML = `
         <div class="info-row">
-          <span>ID: <strong>${item.id_par}</strong></span>
+          <span>ID: <strong>${displayId}</strong></span>
           <span>rp: <strong>${rp}</strong></span>
           <span>sep: <strong>${sep}</strong></span>
         </div>`;
-      const k = String(item.id_par);
       // "(desktop)" solo si el badge se va a mostrar — no en items de calibración,
       // donde el usuario debe re-votar y el desktop no cuenta.
       infoHTML = `
@@ -1539,7 +1562,7 @@
     // ¿Ya están clasificados los 150 suplementarios?
     let n = 0;
     for (const id of suppIds) {
-      if (classifications[String(id)]) n++;
+      if (classifications[`pair:${id}`]) n++;
     }
     if (n < suppIds.length) return;
 
@@ -1550,12 +1573,11 @@
       const ws = _partition.work_start | 0;
       const we = _partition.work_end   | 0;
       for (let i = ws; i < we && i < _basePairs.length; i++) {
-        v1Ids.add(_basePairs[i].id_par);
+        v1Ids.add(`pair:${pairKey(_basePairs[i])}`);
       }
       let nClassifV1 = 0;
       for (const k of Object.keys(classifications)) {
-        const idNum = Number(k);
-        if (Number.isFinite(idNum) && v1Ids.has(idNum)) nClassifV1++;
+        if (v1Ids.has(k)) nClassifV1++;
       }
 
       const url = window._SUPABASE_URL, key = window._SUPABASE_ANON_KEY;
@@ -1605,12 +1627,12 @@
     if (!_partition) return;
 
     const calibBasePairs = _basePairs.slice(0, CALIB_PAIRS);
-    const calibBaseIds   = calibBasePairs.map(p => p.id_par);
+    const calibBaseIds   = calibBasePairs.map(pairKey);
     const suppCalibIds   = window._SUPP_CALIB_IDS || [];
     _calibIdSet = new Set([...calibBaseIds, ...suppCalibIds]);
 
     const calibPairs = seededShuffle(calibBasePairs, _seed);
-    const idToPair = new Map(_basePairs.map(p => [p.id_par, p]));
+    const idToPair = new Map(_basePairs.map(p => [pairKey(p), p]));
     const suppCalibPairs = suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined);
 
     const workPairs = _buildMixedWorkPairs(_partition);
@@ -1727,7 +1749,7 @@
     // Pares de calibración: presentes en _calibIdSet (incluye los 120 base
     // y, para usuarios calib_v=1, los 150 suplementarios).
     if (isGroup(item)) return item._calibGroup === true;
-    return _calibIdSet.has(item.id_par);
+    return _calibIdSet.has(pairKey(item));
   }
 
   function skipToUnclassified(silent = false) {
@@ -1874,10 +1896,10 @@
     } catch(e) {}
   }
 
-  async function loadCloudStateForDevice(devId) {
+  async function loadCloudStateForDevice(devId, basePairs = []) {
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
-    if (!url || !key || !devId) return;
+    if (!CLOUD_SYNC || !url || !key || !devId) return;
 
     const cloud = {};
     const limit = 1000;
@@ -1896,9 +1918,9 @@
       if (rpcResp.ok) {
         const rows = await rpcResp.json();
         rows.forEach(r => {
-          const id = Number(r.id_par);
-          const k = id >= GROUP_OFFSET ? `g_${id - GROUP_OFFSET}` : String(id);
-          cloud[k] = r.classification;
+          if (r.item_type && r.item_uid) {
+            cloud[`${r.item_type}:${r.item_uid}`] = r.classification;
+          }
         });
         classifications = { ...cloud, ...classifications };
         saveState(true);
@@ -1908,7 +1930,7 @@
       while (true) {
         const resp = await fetch(
           `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(devId)}` +
-          `&select=id_par,classification&limit=${limit}&offset=${offset}`,
+          `&select=item_type,item_uid,classification&limit=${limit}&offset=${offset}`,
           {
             headers: {
               'apikey': key,
@@ -1919,9 +1941,9 @@
         if (!resp.ok) return;
         const rows = await resp.json();
         rows.forEach(r => {
-          const id = Number(r.id_par);
-          const k = id >= GROUP_OFFSET ? `g_${id - GROUP_OFFSET}` : String(id);
-          cloud[k] = r.classification;
+          if (r.item_type && r.item_uid) {
+            cloud[`${r.item_type}:${r.item_uid}`] = r.classification;
+          }
         });
         if (rows.length < limit) break;
         offset += limit;
@@ -1970,11 +1992,6 @@
   // ═══════════════════════════════════════════════════════════════════════
   // CLOUD SAVE (Supabase — auto-guardado con debounce de 3 s)
   // ═══════════════════════════════════════════════════════════════════════
-  function _supabaseIdPar(item) {
-    // groups use group_id + OFFSET to avoid collision with pair ids
-    return isGroup(item) ? item.group_id + GROUP_OFFSET : item.id_par;
-  }
-
   function _setSyncDot(state) {
     // state: 'saving' | 'ok' | 'error'
     const dot = document.getElementById('syncDot');
@@ -1987,6 +2004,11 @@
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
     if (!url || !key) return;
+    if (!CLOUD_SYNC) {
+      _setSyncDot('ok');
+      return;
+    }
+    const row = cloudRowForItem(item, classification);
     _setSyncDot('saving');
     fetch(`${url}/rest/v1/rpc/upsert_classification`, {
       method: 'POST',
@@ -1995,30 +2017,19 @@
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        p_device_id: deviceId,
-        p_id_par: _supabaseIdPar(item),
-        p_classification: classification,
-        p_exported_at: new Date().toISOString(),
+        p_device_id: row.device_id,
+        p_item_type: row.item_type,
+        p_item_uid: row.item_uid,
+        p_pair_uid: row.pair_uid,
+        p_stable_system_id: row.stable_system_id,
+        p_id_par_v5: row.id_par_v5,
+        p_classification: row.classification,
+        p_source: row.source,
+        p_exported_at: row.exported_at,
       }),
     })
     .then(r => {
-      if (r.ok) {
-        _setSyncDot('ok');
-        return null;
-      }
-      // Fallback para instancias Supabase que aún no tengan la RPC aplicada.
-      return fetch(`${url}/rest/v1/clasificaciones`, {
-        method: 'POST',
-        headers: {
-          'apikey': key, 'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
-        },
-        body: JSON.stringify([{
-          device_id: deviceId, id_par: _supabaseIdPar(item),
-          classification, exported_at: new Date().toISOString()
-        }])
-      }).then(fallback => _setSyncDot(fallback.ok ? 'ok' : 'error'));
+      _setSyncDot(r.ok ? 'ok' : 'error');
     })
     .catch(() => _setSyncDot('error'));
   }
@@ -2026,7 +2037,7 @@
   function _deleteFromCloud(item) {
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
-    if (!url || !key) return;
+    if (!url || !key || !CLOUD_SYNC) return;
     fetch(`${url}/rest/v1/rpc/delete_classification`, {
       method: 'POST',
       headers: {
@@ -2035,23 +2046,11 @@
       },
       body: JSON.stringify({
         p_device_id: deviceId,
-        p_id_par: _supabaseIdPar(item),
+        p_item_type: itemType(item),
+        p_item_uid: itemUid(item),
       })
     })
-    .then(r => {
-      if (r.ok) return null;
-      return fetch(
-        `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(deviceId)}` +
-        `&id_par=eq.${_supabaseIdPar(item)}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'apikey': key,
-            'Authorization': `Bearer ${key}`,
-          },
-        }
-      ).catch(() => {});
-    })
+    .then(() => {})
     .catch(() => {});
   }
 
@@ -2078,18 +2077,22 @@
     statusEl.style.color = '#aaa';
     statusEl.textContent = `Sending ${entries.length} classifications…`;
 
-    // Build catalog lookup for id_par resolution
+    // Build catalog lookup for stable item_uid resolution.
     const lookup = {};
     catalog.forEach(item => { lookup[itemKey(item)] = item; });
 
     const rows = entries.map(([k, cl]) => {
       const item  = lookup[k];
-      const idPar = item ? _supabaseIdPar(item)
-                         : (k.startsWith('g_') ? parseInt(k.slice(2), 10) + GROUP_OFFSET
-                                                : parseInt(k, 10));
-      return { device_id: deviceId, id_par: idPar, classification: cl,
-               exported_at: new Date().toISOString() };
-    });
+      if (!item) return null;
+      return cloudRowForItem(item, cl);
+    }).filter(Boolean);
+
+    if (!rows.length) {
+      statusEl.style.color = '#aaa';
+      statusEl.textContent = 'No classifications from the current catalog to sync.';
+      btn.disabled = false;
+      return;
+    }
 
     try {
       let resp = await fetch(`${url}/rest/v1/rpc/upsert_classifications`, {
@@ -2102,25 +2105,13 @@
       });
 
       if (!resp.ok) {
-        // Fallback para instancias Supabase que aún no tengan la RPC aplicada.
-        resp = await fetch(`${url}/rest/v1/clasificaciones`, {
-        method: 'POST',
-        headers: {
-          'apikey': key, 'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
-        },
-        body: JSON.stringify(rows)
-        });
-      }
-      if (resp.ok || resp.status === 201 || resp.status === 204) {
-        statusEl.style.color = '#a5d6a7';
-        statusEl.textContent = `✓ ${entries.length} classifications synced.`;
-      } else {
         const txt = await resp.text();
         statusEl.style.color = '#ef9a9a';
         statusEl.textContent = `✗ Error ${resp.status}: ${txt.slice(0, 80)}`;
+        return;
       }
+      statusEl.style.color = '#a5d6a7';
+      statusEl.textContent = `✓ ${rows.length} classifications synced.`;
     } catch (err) {
       statusEl.style.color = '#ef9a9a';
       statusEl.textContent = `✗ Sin conexión: ${err.message}`;
@@ -2148,16 +2139,31 @@
   function doExport() {
     const pairEntries  = [];
     const groupEntries = [];
+    const lookup = {};
+    catalog.forEach(item => { lookup[itemKey(item)] = item; });
     Object.entries(classifications).forEach(([key, cl]) => {
-      if (key.startsWith('g_')) {
-        groupEntries.push({ group_id: parseInt(key.slice(2), 10), classification: cl });
+      if (key.startsWith('group:')) {
+        const item = lookup[key] || {};
+        groupEntries.push({
+          group_uid: key.slice('group:'.length),
+          stable_system_id: item.stable_system_id,
+          group_id: item.group_id,
+          classification: cl,
+        });
       } else {
-        pairEntries.push({ id_par: parseInt(key, 10), classification: cl });
+        const item = lookup[key] || {};
+        pairEntries.push({
+          pair_uid: key.startsWith('pair:') ? key.slice('pair:'.length) : key,
+          id_par_v5: item.id_par_v5,
+          id_par: item.id_par,
+          classification: cl,
+        });
       }
     });
     const payload = {
       exported_at:            new Date().toISOString(),
       source:                 'mobile_pwa',
+      catalog_version:        CATALOG_VERSION,
       device_id:              deviceId,
       total_classified_pairs: pairEntries.length,
       total_classified_groups: groupEntries.length,
@@ -2227,9 +2233,9 @@
 
     const out = [...v1Pairs, ...v2Pairs];
     if (out.length < BLOCK_SIZE) {
-      const used = new Set(out.map(p => p.id_par));
+      const used = new Set(out.map(pairKey));
       const filler = seededShuffle(_basePairs.slice(CALIB_PAIRS), _seed ^ 0xB10C)
-        .filter(p => !used.has(p.id_par));
+        .filter(p => !used.has(pairKey(p)));
       out.push(...filler.slice(0, BLOCK_SIZE - out.length));
     }
     return seededShuffle(out, _seed ^ 0xC0FFEE);
@@ -2351,7 +2357,7 @@
       const baseGroups = data.groups || [];
       desktopCl = data.desktop_classified || {};
       deviceId  = await getOrCreateDeviceId();
-      await loadCloudStateForDevice(deviceId);
+      await loadCloudStateForDevice(deviceId, basePairs);
 
       // ── Obtener/crear partición desde Supabase ───────────────────────
       const partition = await getOrCreatePartition(deviceId);
@@ -2366,7 +2372,7 @@
 
       // ── Calibración base + suplementaria (silenciosa para calib_v=1) ─
       const calibBasePairs = basePairs.slice(0, CALIB_PAIRS);
-      const calibBaseIds   = calibBasePairs.map(p => p.id_par);
+      const calibBaseIds   = calibBasePairs.map(pairKey);
       const suppCalibIds   = window._SUPP_CALIB_IDS || [];
 
       // Set de ids considerados "de calibración" para este usuario.
@@ -2380,7 +2386,7 @@
       const calibPairs = seededShuffle(calibBasePairs, seed);
 
       // 2) Calibración suplementaria: 150 pares, orden SECUENCIAL (lista canónica).
-      const idToPair = new Map(basePairs.map(p => [p.id_par, p]));
+      const idToPair = new Map(basePairs.map(p => [pairKey(p), p]));
       const suppCalibPairs = suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined);
 
       // 3) Work pairs: objetivo 1000 pares, 50% rp<20 y 50% rp∈[20,50).
