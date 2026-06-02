@@ -52,7 +52,6 @@ TEMPLATE_HTML = 'mobile/index.html'
 OUTPUT_HTML   = 'mobile/GalPairs.html'
 RP_MAX_KPC    = 50.0   # extendido desde 20 → permite régimen rp ∈ [20,50] kpc
 RP_V1_KPC     = 20.0   # frontera entre slice v1 (legacy) y v2 (suplementario)
-SUPP_CALIB_JSON = 'data/supplementary_calib_ids.json'  # IDs calibración suplementaria
 MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
 
 # ── Catálogo ──────────────────────────────────────────────────────────────────
@@ -93,25 +92,6 @@ def _load_desktop_classified(progress_file):
     result.pop('None', None)
     return result
 
-
-def _load_supp_calib_ids(version: str, pairs_by_id_par: dict[int, dict]) -> list:
-    """Carga la lista canónica de IDs de calibración suplementaria (rp ∈ [20,50])."""
-    if not Path(SUPP_CALIB_JSON).exists():
-        print(f'  Aviso: {SUPP_CALIB_JSON} no encontrado — _SUPP_CALIB_IDS quedará vacío')
-        return []
-    with open(SUPP_CALIB_JSON) as f:
-        data = json.load(f)
-    ids = [int(x) for x in data.get('id_par', [])]
-    if version.startswith('v5'):
-        print('  Aviso: calibración suplementaria v3 no se reutiliza por id_par en v5; se omite')
-        return []
-    keys = [
-        _pair_key(pairs_by_id_par[id_par])
-        for id_par in ids
-        if id_par in pairs_by_id_par
-    ]
-    print(f'  {len(keys)} IDs de calibración suplementaria cargados')
-    return keys
 
 
 def build_catalog() -> dict:
@@ -200,13 +180,6 @@ def build_catalog() -> dict:
     desktop_cl = _load_desktop_classified(PROGRESS_FILE)
     print(f'  {len(desktop_cl)} pares ya clasificados en escritorio')
 
-    pairs_by_id_par = {
-        int(pair['id_par']): pair
-        for pair in pairs
-        if pair.get('id_par') is not None
-    }
-    supp_calib_ids = _load_supp_calib_ids(version, pairs_by_id_par)
-
     groups = _build_groups_catalog()
 
     return {
@@ -221,7 +194,6 @@ def build_catalog() -> dict:
         'total_pairs':        len(pairs),
         'total_groups':       len(groups),
         'desktop_classified': desktop_cl,
-        'supp_calib_ids':     supp_calib_ids,
         'pairs':              pairs,
         'groups':             groups,
     }
@@ -296,10 +268,7 @@ def main():
 
     catalog = build_catalog()
 
-    # Extraer la lista de IDs suplementarios para exponerla aparte
-    supp_ids = catalog.pop('supp_calib_ids', [])
-    catalog_json  = json.dumps(catalog,  separators=(',', ':'))
-    supp_ids_json = json.dumps(supp_ids, separators=(',', ':'))
+    catalog_json = json.dumps(catalog, separators=(',', ':'))
 
     with open(TEMPLATE_HTML, encoding='utf-8') as f:
         html = f.read()
@@ -311,7 +280,6 @@ def main():
     inject = (
         f'<script>'
         f'window._CATALOG={catalog_json};'
-        f'window._SUPP_CALIB_IDS={supp_ids_json};'
         f'{supabase_js}'
         f'</script>\n  '
     )
@@ -333,7 +301,7 @@ def main():
     print(f'   Pares totales: {catalog["total_pairs"]:,}'
           f'  (v1 rp<{RP_V1_KPC}: {catalog["n_pairs_v1"]:,}'
           f'  |  v2 rp∈[{RP_V1_KPC},{RP_MAX_KPC}): {catalog["n_pairs_v2"]:,})')
-    print(f'   Grupos: {catalog["total_groups"]:,}  |  Calibración suplementaria: {len(supp_ids)} IDs')
+    print(f'   Grupos: {catalog["total_groups"]:,}')
     print(f'   Tamaño: {size_mb:.1f} MB')
     print()
     print('Siguiente paso — publicar en GitHub Pages:')

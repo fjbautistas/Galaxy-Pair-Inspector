@@ -112,7 +112,7 @@ PM_IMG_DIR     = 'outputs/pm_images'
 PAIR_IMG_DIR   = 'outputs/pair_images'
 
 # ── Configuración de grupos ───────────────────────────────────────────────────
-GROUPS_CATALOG_PATH   = _env.get('GROUPS_CATALOG', 'data/DESI_v3_groups.parquet')
+GROUPS_CATALOG_PATH   = _env.get('GROUPS_CATALOG', 'data/DESI_v5_3_groups.parquet')
 PROGRESS_FILE_GROUPS  = 'outputs/catalogs/progress_groups.json'
 OUTPUT_CSV_FP_GROUPS  = 'outputs/catalogs/groups_false_positives.csv'
 OUTPUT_CSV_PM_GROUPS  = 'outputs/catalogs/groups_possible_mergers.csv'

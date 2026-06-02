@@ -924,11 +924,10 @@
   let _partition       = null; // partition actual del dispositivo (mutable: claim_v2_slice la actualiza)
   let _seed            = 0;    // seed personal del dispositivo (para reusarlo al reconstruir)
   let _calibIdSet      = new Set();  // ids de items considerados de calibración para este usuario
-  let _claimingV2      = false;       // flag para evitar llamadas concurrentes a claim_v2_slice
 
   // ── helpers tipo item ───────────────────────────────────────────────────
   function isGroup(item)  { return !!item.group_id; }
-  function pairKey(item)  { return String(item.pair_uid || item.id_par); }
+  function pairKey(item)  { return String(item.pair_uid); }
   function groupKey(item) { return String(item.group_uid || item.stable_system_id || item.group_id); }
   function itemType(item) { return isGroup(item) ? 'group' : 'pair'; }
   function itemUid(item)  { return isGroup(item) ? groupKey(item) : pairKey(item); }
@@ -1545,190 +1544,6 @@
       setTimeout(_showCompletionMessage, 250);
     }
 
-    // Hook: si el usuario acaba de completar la calibración suplementaria,
-    // reclamar slice v2 (silencioso → mostrar mensaje motivacional al final).
-    _maybeClaimV2Slice();
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // CALIB SUPLEMENTARIA → claim_v2_slice (silencioso hasta el voto #150)
-  // ═══════════════════════════════════════════════════════════════════════
-  async function _maybeClaimV2Slice() {
-    if (_claimingV2) return;
-    if (!_partition || _partition.calib_v !== 1) return;
-    const suppIds = window._SUPP_CALIB_IDS || [];
-    if (suppIds.length === 0) return;
-
-    // ¿Ya están clasificados los 150 suplementarios?
-    let n = 0;
-    for (const id of suppIds) {
-      if (classifications[`pair:${id}`]) n++;
-    }
-    if (n < suppIds.length) return;
-
-    _claimingV2 = true;
-    try {
-      // Contar pares ya clasificados dentro del slice v1 actual (Lectura B)
-      const v1Ids = new Set();
-      const ws = _partition.work_start | 0;
-      const we = _partition.work_end   | 0;
-      for (let i = ws; i < we && i < _basePairs.length; i++) {
-        v1Ids.add(`pair:${pairKey(_basePairs[i])}`);
-      }
-      let nClassifV1 = 0;
-      for (const k of Object.keys(classifications)) {
-        if (v1Ids.has(k)) nClassifV1++;
-      }
-
-      const url = window._SUPABASE_URL, key = window._SUPABASE_ANON_KEY;
-      let updated = null;
-      if (url && key) {
-        const r = await fetch(`${url}/rest/v1/rpc/claim_v2_slice`, {
-          method:  'POST',
-          headers: {
-            'apikey':        key,
-            'Authorization': `Bearer ${key}`,
-            'Content-Type':  'application/json',
-          },
-          body: JSON.stringify({
-            p_device_id:    deviceId,
-            p_target_total: BLOCK_SIZE,
-            p_n_classif_v1: nClassifV1,
-            p_v1_max_idx:   ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 31976),
-            p_v2_max_idx:   ((window._CATALOG && window._CATALOG.total_pairs) || _basePairs.length),
-          }),
-        });
-        if (r.ok) {
-          const rows = await r.json();
-          updated = Array.isArray(rows) ? rows[0] : rows;
-        }
-      }
-
-      if (updated) {
-        Object.assign(_partition, updated);  // mutate in-place
-      } else {
-        // Fallback: marcar localmente como calib_v=2 para no reintentar en bucle
-        _partition.calib_v = 2;
-      }
-
-      _rebuildCatalogAfterV2();
-      _showUnlockToast();
-    } catch (e) {
-      console.warn('claim_v2_slice failed:', e);
-      _partition.calib_v = 2;  // evitar reintentos infinitos en esta sesión
-    } finally {
-      _claimingV2 = false;
-    }
-  }
-
-  function _rebuildCatalogAfterV2() {
-    // Reconstruir el catálogo manteniendo la calibración suplementaria visible
-    // para que el total de entrenamiento sea estable por usuario.
-    if (!_partition) return;
-
-    const calibBasePairs = _basePairs.slice(0, CALIB_PAIRS);
-    const calibBaseIds   = calibBasePairs.map(pairKey);
-    const suppCalibIds   = window._SUPP_CALIB_IDS || [];
-    _calibIdSet = new Set([...calibBaseIds, ...suppCalibIds]);
-
-    const calibPairs = seededShuffle(calibBasePairs, _seed);
-    const idToPair = new Map(_basePairs.map(p => [pairKey(p), p]));
-    const suppCalibPairs = suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined);
-
-    const workPairs = _buildMixedWorkPairs(_partition);
-
-    const calibGroups = seededShuffle(
-      _baseGroups.slice(0, CALIB_GROUPS).map(g => ({...g, _calibGroup: true})),
-      _seed ^ 0xCAFE
-    );
-    let workGroups = (_partition.group_work_start != null)
-      ? _baseGroups.slice(_partition.group_work_start, _partition.group_work_end)
-      : null;
-    // Fallback: si el slice asignado quedó fuera de rango (sucede cuando
-    // assign_partition asignó group_work_start mayor que la longitud real
-    // del catálogo de grupos), usar shuffle determinístico LIMITADO a
-    // GROUP_BLOCK_SIZE — sin .slice() el catálogo se infla con todos los grupos.
-    if (!workGroups || workGroups.length === 0) {
-      workGroups = seededShuffle(_baseGroups.slice(CALIB_GROUPS), _seed ^ 0x1F2E3D)
-                     .slice(0, GROUP_BLOCK_SIZE);
-    }
-
-    function interleave(pairs, groups, ratio = GROUP_INTERLEAVE_RATIO) {
-      const out = [];
-      let pi = 0, gi = 0;
-      while (pi < pairs.length || gi < groups.length) {
-        for (let r = 0; r < ratio && pi < pairs.length; r++) out.push(pairs[pi++]);
-        if (gi < groups.length) out.push(groups[gi++]);
-      }
-      return out;
-    }
-
-    // Preservar la posición lógica: el item actual sigue siendo el mismo objeto
-    const currentItem = catalog[currentIndex];
-    catalog = [
-      ...interleave([...calibPairs, ...suppCalibPairs], calibGroups),
-      ...interleave(workPairs,  workGroups),
-    ];
-
-    // Re-localizar el currentIndex (si el ítem actual sigue en el catálogo)
-    if (currentItem) {
-      const ck = itemKey(currentItem);
-      const newIdx = catalog.findIndex(it => itemKey(it) === ck);
-      if (newIdx >= 0) currentIndex = newIdx;
-      else currentIndex = Math.min(currentIndex, catalog.length - 1);
-    }
-  }
-
-  function _showUnlockToast() {
-    // Modal celebratorio — aparece solo una vez tras completar la suplementaria
-    let el = document.getElementById('unlockToast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'unlockToast';
-      el.innerHTML = `
-        <div class="unlock-card">
-          <div class="unlock-emoji">🔥</div>
-          <div class="unlock-title">You crushed it!</div>
-          <div class="unlock-subtitle">Pro Inspector unlocked</div>
-          <div class="unlock-body">
-            You smashed the calibration barrier. Like a true pro, your eye is
-            now trained on the full separation range — pairs out to <b>50 kpc</b>
-            are no match for you. Keep that streak alive! 🚀
-          </div>
-          <button class="unlock-close" onclick="document.getElementById('unlockToast').remove()">Let's go!</button>
-        </div>`;
-      Object.assign(el.style, {
-        position:'fixed', inset:'0', zIndex:'9999',
-        background:'rgba(0,0,0,0.65)', display:'flex',
-        alignItems:'center', justifyContent:'center',
-        padding:'20px',
-      });
-      const style = document.createElement('style');
-      style.textContent = `
-        .unlock-card     { background:#1a1d24; border:1px solid #ff9c3a; border-radius:14px;
-                           padding:26px 22px; max-width:340px; text-align:center;
-                           box-shadow:0 8px 32px rgba(255,156,58,0.35); animation: unlockPop .4s ease; }
-        .unlock-emoji    { font-size:54px; margin-bottom:6px; animation: unlockBounce .9s ease infinite alternate; }
-        .unlock-title    { color:#ffe66d; font-size:22px; font-weight:700; letter-spacing:.3px; }
-        .unlock-subtitle { color:#ff9c3a; font-size:13px; font-weight:600; text-transform:uppercase;
-                           letter-spacing:1.2px; margin: 4px 0 14px; }
-        .unlock-body     { color:#cfd6e3; font-size:14px; line-height:1.5; margin-bottom:18px; }
-        .unlock-close    { background:linear-gradient(135deg, #ff9c3a, #ffc043); color:#1a1d24;
-                           border:none; padding:11px 26px; border-radius:8px;
-                           font-size:14px; font-weight:700; cursor:pointer;
-                           box-shadow:0 2px 8px rgba(255,156,58,0.4); }
-        .unlock-close:hover { filter: brightness(1.08); }
-        @keyframes unlockPop {
-          0%   { transform: scale(0.8); opacity: 0; }
-          100% { transform: scale(1.0); opacity: 1; }
-        }
-        @keyframes unlockBounce {
-          from { transform: translateY(0)    rotate(-3deg); }
-          to   { transform: translateY(-4px) rotate(3deg); }
-        }`;
-      document.head.appendChild(style);
-      document.body.appendChild(el);
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1746,8 +1561,7 @@
 
   function _isCalibItem(item) {
     // Grupos de calibración: marcados con _calibGroup en init().
-    // Pares de calibración: presentes en _calibIdSet (incluye los 120 base
-    // y, para usuarios calib_v=1, los 150 suplementarios).
+    // Pares de calibración: presentes en _calibIdSet (los primeros CALIB_PAIRS).
     if (isGroup(item)) return item._calibGroup === true;
     return _calibIdSet.has(pairKey(item));
   }
@@ -2370,26 +2184,14 @@
       _partition  = partition;
       _seed       = seed;
 
-      // ── Calibración base + suplementaria (silenciosa para calib_v=1) ─
+      // ── Calibración base ─────────────────────────────────────────────
       const calibBasePairs = basePairs.slice(0, CALIB_PAIRS);
-      const calibBaseIds   = calibBasePairs.map(pairKey);
-      const suppCalibIds   = window._SUPP_CALIB_IDS || [];
+      _calibIdSet = new Set(calibBasePairs.map(pairKey));
 
-      // Set de ids considerados "de calibración" para este usuario.
-      // Incluye siempre la calibración suplementaria para mantener 1450 ítems.
-      _calibIdSet = new Set([
-        ...calibBaseIds,
-        ...suppCalibIds,
-      ]);
-
-      // 1) Calibración base: 120 pares, orden seeded (igual que antes)
+      // 1) Calibración: CALIB_PAIRS pares, orden seeded.
       const calibPairs = seededShuffle(calibBasePairs, seed);
 
-      // 2) Calibración suplementaria: 150 pares, orden SECUENCIAL (lista canónica).
-      const idToPair = new Map(basePairs.map(p => [pairKey(p), p]));
-      const suppCalibPairs = suppCalibIds.map(id => idToPair.get(id)).filter(p => p !== undefined);
-
-      // 3) Work pairs: objetivo 1000 pares, 50% rp<20 y 50% rp∈[20,50).
+      // 2) Work pairs: objetivo 1000 pares, 50% rp<20 y 50% rp∈[20,50).
       const workPairs = _buildMixedWorkPairs(partition);
 
       // ── Grupos: calibración (primeros CALIB_GROUPS, mismos para todos, orden distinto)
@@ -2420,10 +2222,10 @@
         return out;
       }
       // Catálogo final (ratio 10:1 — 1 grupo por cada 10 pares):
-      //   1. Calibración completa de pares (base + suplementaria), intercalada con grupos calib
+      //   1. Calibración de pares intercalada con grupos calib
       //   2. Work block mixto 50/50, intercalado con grupos work
       catalog = [
-        ...interleave([...calibPairs, ...suppCalibPairs], calibGroups),
+        ...interleave(calibPairs, calibGroups),
         ...interleave(workPairs,  workGroups),
       ];
 
