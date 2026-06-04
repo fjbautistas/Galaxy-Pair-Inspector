@@ -420,12 +420,12 @@
         <button class="btn-cl" id="btnFP" onclick="classify('FP')">
           <span class="ic">❌</span>
           <span>NonPair</span>
-          <span class="lbl">NonPair</span>
+          <span class="lbl">NP</span>
         </button>
         <button class="btn-cl" id="btnPair" onclick="classify('Pair')">
           <span class="ic">✅</span>
           <span>Pair</span>
-          <span class="lbl">Pair</span>
+          <span class="lbl">P</span>
         </button>
         <button class="btn-cl" id="btnPM" onclick="classify('PM')">
           <span class="ic">🌀</span>
@@ -1490,15 +1490,15 @@
   function _updateButtons(cl, item) {
     const fpBtn = document.getElementById('btnFP');
     fpBtn.innerHTML = isGroup(item)
-      ? '<span class="ic">❌</span><span>NonGroup</span><span class="lbl">NonGroup</span>'
-      : '<span class="ic">❌</span><span>NonPair</span><span class="lbl">NonPair</span>';
+      ? '<span class="ic">❌</span><span>NonGroup</span><span class="lbl">NG</span>'
+      : '<span class="ic">❌</span><span>NonPair</span><span class="lbl">NP</span>';
     fpBtn.className = 'btn-cl' + (cl === 'FP' ? ' a-fp' : '');
 
     const midBtn = document.getElementById('btnPair');
     const pmBtn  = document.getElementById('btnPM');
 
     if (isGroup(item)) {
-      midBtn.innerHTML = '<span class="ic">⭐</span><span>Group</span><span class="lbl">Group</span>';
+      midBtn.innerHTML = '<span class="ic">⭐</span><span>Group</span><span class="lbl">G</span>';
       midBtn.onclick   = () => classify('GROUP');
       midBtn.className = 'btn-cl' + (cl === 'GROUP' ? ' a-group' : '');
       // Botón derecho = Possible Pair en grupos
@@ -1506,7 +1506,7 @@
       pmBtn.onclick    = () => classify('PP');
       pmBtn.className  = 'btn-cl' + (cl === 'PP' ? ' a-group' : '');
     } else {
-      midBtn.innerHTML = '<span class="ic">✅</span><span>Pair</span><span class="lbl">Pair</span>';
+      midBtn.innerHTML = '<span class="ic">✅</span><span>Pair</span><span class="lbl">P</span>';
       midBtn.onclick   = () => classify('Pair');
       midBtn.className = 'btn-cl' + (cl === 'Pair' ? ' a-pair' : '');
       pmBtn.innerHTML  = '<span class="ic">🔀</span><span>Merger</span><span class="lbl">PM</span>';
