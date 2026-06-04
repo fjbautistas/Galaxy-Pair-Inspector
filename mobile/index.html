@@ -419,8 +419,8 @@
       <div class="cl-grid">
         <button class="btn-cl" id="btnFP" onclick="classify('FP')">
           <span class="ic">❌</span>
-          <span>False Pos.</span>
-          <span class="lbl">FP</span>
+          <span>NonPair</span>
+          <span class="lbl">NonPair</span>
         </button>
         <button class="btn-cl" id="btnPair" onclick="classify('Pair')">
           <span class="ic">✅</span>
@@ -516,10 +516,10 @@
           </svg>
         </div>
         <div class="tut-label" style="color:#43a047">✅ Confirmed Pair</div>
-        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. <strong>Both galactic centers are still clearly distinguishable as separate objects.</strong> Mark as <strong style="color:#a5d6a7">Pair</strong>.<br><br><span style="color:#aaa;font-size:12px">🎯 <strong>Classify only the marked galaxies.</strong> Other galaxies visible in the image are projections at different redshifts — already filtered out using velocity cuts (Δv) and projected distance (rp), so they are not part of this pair.</span><br><br><span style="color:#aaa;font-size:12px">⚠️ If both markers point to the same object (deblending artifact), it's actually a <strong style="color:#ef9a9a">False Positive</strong>.</span></div>
+        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. <strong>Both galactic centers are still clearly distinguishable as separate objects.</strong> Mark as <strong style="color:#a5d6a7">Pair</strong>.<br><br><span style="color:#aaa;font-size:12px">🎯 <strong>Classify only the marked galaxies.</strong> Other galaxies visible in the image are projections at different redshifts — already filtered out using velocity cuts (Δv) and projected distance (rp), so they are not part of this pair.</span><br><br><span style="color:#aaa;font-size:12px">⚠️ If both markers point to the same object (deblending artifact), mark it as <strong style="color:#ef9a9a">NonPair</strong>.</span></div>
       </div>
 
-      <!-- Slide 2: FP -->
+      <!-- Slide 2: NonPair -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
           <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
@@ -566,10 +566,10 @@
             <text x="152" y="140" text-anchor="middle" font-size="8" fill="#e53935" font-family="monospace" opacity=".9">same object!</text>
           </svg>
         </div>
-        <div class="tut-label" style="color:#e53935">❌ False Positive</div>
+        <div class="tut-label" style="color:#e53935">❌ NonPair</div>
         <div class="tut-desc">
           <strong>Projection:</strong> two galaxies at very different redshifts that overlap on the sky. Not a real pair.<br><br>
-          <strong>Deblending:</strong> the catalog mistakenly split one galaxy into two sources (G1 and G2 point to the same object). Both cases → <strong style="color:#ef9a9a">FP</strong>.
+          <strong>Deblending:</strong> the catalog mistakenly split one galaxy into two sources (G1 and G2 point to the same object). Both cases → <strong style="color:#ef9a9a">NonPair</strong>.
         </div>
       </div>
 
@@ -649,7 +649,7 @@
         <div class="tut-desc">3 or more galaxies physically associated (same redshift, gravitationally bound). The app marks the closest members. Mark as <strong style="color:#64b5f6">Group</strong>.</div>
       </div>
 
-      <!-- Slide 5: FP in groups (deblending) -->
+      <!-- Slide 5: NonGroup (deblending) -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
           <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
@@ -679,8 +679,8 @@
             <text x="100" y="158" text-anchor="middle" font-size="9" fill="#e53935" font-family="monospace">1 galaxy, 4 labels!</text>
           </svg>
         </div>
-        <div class="tut-label" style="color:#e53935">❌ FP in Groups</div>
-        <div class="tut-desc">The catalog shows a group of N=4, but there is only <em>one</em> real galaxy. All markers (G1–G4) point to the same object — a severe deblending error. There is no group here. Mark as <strong style="color:#ef9a9a">FP</strong>.</div>
+        <div class="tut-label" style="color:#e53935">❌ NonGroup</div>
+        <div class="tut-desc">The catalog shows a group of N=4, but there is only <em>one</em> real galaxy. All markers (G1–G4) point to the same object — a severe deblending error. There is no group here. Mark as <strong style="color:#ef9a9a">NonGroup</strong>.</div>
       </div>
 
       <!-- Slide 6: PP -->
@@ -773,7 +773,7 @@
           <strong>Navigate:</strong> swipe left/right or use Prev/Next.<br>
           <strong>Sky Viewer:</strong> double-tap the image to open Legacy Survey with DESI spectroscopy overlay — circles show which galaxies were observed and at what redshift.<br>
           <strong>Classify only the marked galaxies.</strong> Others visible in the image are projections already removed by Δv and rp cuts.<br>
-          <strong>Unsure?</strong> Use FP — better conservative than wrong.<br>
+          <strong>Unsure?</strong> Use NonPair/NonGroup — better conservative than wrong.<br>
           Your progress saves automatically.
         </div>
       </div>
@@ -807,7 +807,7 @@
       <div class="stats-grid">
         <div class="stat-card c-fp">
           <div class="stat-num" id="sFP">0</div>
-          <div class="stat-lbl">False Pos.</div>
+          <div class="stat-lbl">NonPair/Group</div>
         </div>
         <div class="stat-card c-pair">
           <div class="stat-num" id="sPair">0</div>
@@ -1483,12 +1483,16 @@
   function _badge(cl, forGroup) {
     if (!cl) return '';
     const colors = { FP: '#ef9a9a', Pair: '#a5d6a7', GROUP: '#64b5f6', PM: '#ffcc80', PP: '#4dccaa' };
-    const labels = { FP: 'False Positive', Pair: 'Confirmed Pair', GROUP: 'Confirmed Group', PM: 'Possible Merger', PP: 'Possible Pair' };
+    const labels = { FP: forGroup ? 'NonGroup' : 'NonPair', Pair: 'Confirmed Pair', GROUP: 'Confirmed Group', PM: 'Possible Merger', PP: 'Possible Pair' };
     return `<div class="cl-badge" style="color:${colors[cl]||'#aaa'}">✓ ${labels[cl]||cl}</div>`;
   }
 
   function _updateButtons(cl, item) {
-    document.getElementById('btnFP').className = 'btn-cl' + (cl === 'FP' ? ' a-fp' : '');
+    const fpBtn = document.getElementById('btnFP');
+    fpBtn.innerHTML = isGroup(item)
+      ? '<span class="ic">❌</span><span>NonGroup</span><span class="lbl">NonGroup</span>'
+      : '<span class="ic">❌</span><span>NonPair</span><span class="lbl">NonPair</span>';
+    fpBtn.className = 'btn-cl' + (cl === 'FP' ? ' a-fp' : '');
 
     const midBtn = document.getElementById('btnPair');
     const pmBtn  = document.getElementById('btnPM');
