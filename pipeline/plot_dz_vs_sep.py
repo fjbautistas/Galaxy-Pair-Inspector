@@ -16,8 +16,8 @@ import sys
 import urllib.request as urlreq
 from pathlib import Path
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 
 # ── Leer .env ─────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ def _load_env(path='.env'):
 _env         = _load_env()
 SUPABASE_URL = _env.get('SUPABASE_URL', '').rstrip('/')
 ANON_KEY     = _env.get('SUPABASE_ANON_KEY', '')
-CATALOG_PATH = _env.get('PAIRS_CATALOG', '')
+CATALOG_PATH = _env.get('PAIRS_CATALOG', 'data/DESI_v5_3_pairs.parquet')
 OUTPUT_DIR   = Path('outputs/plots')
 
 COLORS = {
@@ -60,7 +60,8 @@ def _fetch_classifications() -> pd.DataFrame:
     while True:
         url = (
             f'{SUPABASE_URL}/rest/v1/clasificaciones'
-            f'?select=id_par,classification'
+            f'?select=item_type,pair_uid,classification'
+            f'&item_type=eq.pair'
             f'&limit={limit}&offset={offset}'
         )
         req = urlreq.Request(url, headers={
@@ -76,7 +77,10 @@ def _fetch_classifications() -> pd.DataFrame:
         offset += limit
 
     df = pd.DataFrame(rows)
-    df['id_par'] = df['id_par'].astype(int)
+    if df.empty:
+        return pd.DataFrame(columns=['pair_uid', 'classification'])
+    df = df[df['pair_uid'].notna()].copy()
+    df['pair_uid'] = df['pair_uid'].astype(str)
 
     def majority(group):
         counts = group['classification'].value_counts()
@@ -85,13 +89,18 @@ def _fetch_classifications() -> pd.DataFrame:
         return counts.index[0]
 
     labels = (
-        df.groupby('id_par')
+        df.groupby('pair_uid')
         .apply(majority)
         .dropna()
         .reset_index()
     )
-    labels.columns = ['id_par', 'classification']
+    labels.columns = ['pair_uid', 'classification']
     return labels
+
+
+def _pair_uid(id1, id2) -> str:
+    a, b = sorted((int(id1), int(id2)))
+    return f'{a}:{b}'
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -110,10 +119,16 @@ def main():
     print(f'  {len(labels)} pares clasificados (sin empates)')
 
     print('Cargando catálogo…')
-    catalog = pd.read_parquet(CATALOG_PATH, columns=['id_par', 'sep_arcsec', 'dz'])
+    columns = pd.read_parquet(CATALOG_PATH, columns=None).columns
+    read_cols = ['id1', 'id2', 'sep_arcsec', 'dz']
+    if 'pair_uid' in columns:
+        read_cols.append('pair_uid')
+    catalog = pd.read_parquet(CATALOG_PATH, columns=read_cols)
+    if 'pair_uid' not in catalog.columns:
+        catalog['pair_uid'] = [_pair_uid(a, b) for a, b in zip(catalog['id1'], catalog['id2'])]
     print(f'  {len(catalog):,} pares en el catálogo')
 
-    df = catalog.merge(labels, on='id_par', how='inner')
+    df = catalog.merge(labels, on='pair_uid', how='inner')
     print(f'  {len(df)} pares con clasificación y datos físicos')
 
     for label, group in df.groupby('classification'):

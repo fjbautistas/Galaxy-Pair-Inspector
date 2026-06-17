@@ -1,26 +1,22 @@
 """
-identify_users.py — Estadísticas por usuario (campaña v5_3).
+identify_users.py — Estadísticas por usuario de la campaña activa.
 
 Muestra por device_id:
   - votos totales, pares de calibración, pares de trabajo, grupos
   - primer y último voto (created_at servidor)
   - días activos
-  - fuente: v5_3_app vs migrated_v3
-
-Por defecto solo muestra actividad real (source = 'v5_3_app').
-Para incluir votos migrados de v3 pasa --all.
 
 Uso:
     python pipeline/identify_users.py
-    python pipeline/identify_users.py --all
 """
 
-import argparse
 import json
 import urllib.request as urlreq
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 
 # ── .env ─────────────────────────────────────────────────────────────────────
@@ -41,14 +37,20 @@ def _load_env(path='.env'):
 _env             = _load_env()
 SUPABASE_URL     = _env.get('SUPABASE_URL', '').rstrip('/')
 ANON_KEY         = _env.get('SUPABASE_SERVICE_ROLE_KEY', '') or _env.get('SUPABASE_ANON_KEY', '')
+PAIRS_CATALOG    = _env.get('PAIRS_CATALOG', 'data/DESI_v5_3_pairs.parquet')
 
-CALIB_PAIRS       = 120   # primeros N pares son calibración base (rp<20 kpc)
+CALIB_PAIRS       = 120
 SUPP_CALIB_JSON   = 'data/supplementary_calib_ids_v5_3.json'
 APP_BASE_URL      = 'https://fjbautistas.github.io/Galaxy-Pair-Inspector/mobile/GalPairs.html'
 
 
+def _pair_uid(id1, id2) -> str:
+    a, b = sorted((int(id1), int(id2)))
+    return f'{a}:{b}'
+
+
 def _load_supp_calib_ids() -> set:
-    """Carga los pair_uid del set de calibración suplementaria v5_3."""
+    """Carga los pair_uid del set de calibración suplementaria."""
     try:
         with open(SUPP_CALIB_JSON) as f:
             data = json.load(f)
@@ -60,19 +62,31 @@ def _load_supp_calib_ids() -> set:
         return set()
 
 
-_SUPP_CALIB_IDS: set = set()  # se inicializa en main()
+def _load_base_calib_ids() -> set:
+    if not PAIRS_CATALOG or not Path(PAIRS_CATALOG).exists():
+        print(f'  Aviso: catálogo de pares no encontrado — calibración base no contada')
+        return set()
+    pairs = pd.read_parquet(PAIRS_CATALOG)
+    if 'pair_uid' not in pairs.columns:
+        pairs['pair_uid'] = [_pair_uid(a, b) for a, b in zip(pairs['id1'], pairs['id2'])]
+    rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in pairs.columns), None)
+    if rp_col:
+        mask_inner = pairs[rp_col] < 20.0
+        pairs = pd.concat([pairs[mask_inner], pairs[~mask_inner]], ignore_index=True)
+    return set(pairs.iloc[:CALIB_PAIRS]['pair_uid'].astype(str))
+
+
+_CALIB_PAIR_UIDS: set = set()  # se inicializa en main()
 
 
 # ── Supabase ─────────────────────────────────────────────────────────────────
-def fetch_all(only_app: bool = True) -> list[dict]:
+def fetch_all() -> list[dict]:
     rows, limit, offset = [], 1000, 0
-    source_filter = '&source=eq.v5_3_app' if only_app else ''
     while True:
         url = (
             f'{SUPABASE_URL}/rest/v1/clasificaciones'
-            f'?select=device_id,item_type,item_uid,id_par_v5,classification,source,created_at'
+            f'?select=device_id,item_type,item_uid,classification,source,created_at'
             f'&order=created_at.asc'
-            f'{source_filter}'
             f'&limit={limit}&offset={offset}'
         )
         req = urlreq.Request(url, headers={
@@ -106,16 +120,9 @@ def parse_ts(s: str) -> datetime:
 
 # ── Resumen por usuario ──────────────────────────────────────────────────────
 def _is_calib(row: dict) -> bool:
-    """Par de calibración base (id_par_v5 < CALIB_PAIRS) o suplementaria (pair_uid en _SUPP_CALIB_IDS)."""
     if row.get('item_type') != 'pair':
         return False
-    # Calibración base: primeros 120 pares (rp<20 kpc)
-    v5 = row.get('id_par_v5')
-    if v5 is not None and int(v5) < CALIB_PAIRS:
-        return True
-    # Calibración suplementaria: pair_uid en el set cargado desde JSON
-    uid = row.get('item_uid', '')
-    return uid in _SUPP_CALIB_IDS
+    return str(row.get('item_uid', '')) in _CALIB_PAIR_UIDS
 
 
 def summarize(rows: list[dict]) -> list[dict]:
@@ -175,22 +182,15 @@ def print_totals(summary: list[dict]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--all', action='store_true',
-                        help='Incluir votos migrados de v3 (source=migrated_v3)')
-    args = parser.parse_args()
-
     if not SUPABASE_URL or not ANON_KEY:
         print('ERROR: falta SUPABASE_URL o SUPABASE_ANON_KEY en .env')
         return
 
-    global _SUPP_CALIB_IDS
-    _SUPP_CALIB_IDS = _load_supp_calib_ids()
+    global _CALIB_PAIR_UIDS
+    _CALIB_PAIR_UIDS = _load_base_calib_ids() | _load_supp_calib_ids()
 
-    only_app = not args.all
-    label    = 'actividad real (v5_3_app)' if only_app else 'todos los votos (v5_3_app + migrated_v3)'
-    print(f'Descargando clasificaciones desde Supabase — {label}…')
-    rows = fetch_all(only_app=only_app)
+    print('Descargando clasificaciones desde Supabase...')
+    rows = fetch_all()
     print(f'  {len(rows):,} filas, {len({r["device_id"] for r in rows})} usuarios distintos\n')
 
     summary = summarize(rows)

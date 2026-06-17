@@ -1,19 +1,11 @@
 """
-export_standalone.py — Genera un único HTML con el catálogo completo embebido.
+Build a standalone mobile HTML file with the active pair/group catalog embedded.
 
-Cada dispositivo que abra el HTML se auto-registra en Supabase la primera vez
-y recibe automáticamente su partición sin intervención manual.
-
-Uso:
+Usage:
     python pipeline/export_standalone.py
 
-Genera: mobile/GalPairs.html
-
-Flujo:
-    1. Corre este script (una sola vez, o cuando cambie el catálogo)
-    2. git add mobile/GalPairs.html && git commit && git push
-    3. Cada usuario abre fjbautistas.github.io/Galaxy-Pair-Inspector/mobile/GalPairs.html
-       → se registra solo en Supabase → clasifica su bloque asignado
+Output:
+    mobile/GalPairs.html
 """
 
 import json
@@ -44,20 +36,20 @@ SUPABASE_URL      = _env.get('SUPABASE_URL', '')
 SUPABASE_ANON_KEY = _env.get('SUPABASE_ANON_KEY', '')
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-CATALOG_PATH         = _env.get('PAIRS_CATALOG', '')
-GROUPS_CATALOG_PATH  = _env.get('GROUPS_CATALOG', '')
+CATALOG_PATH         = _env.get('PAIRS_CATALOG', 'data/DESI_v5_3_pairs.parquet')
+GROUPS_CATALOG_PATH  = _env.get('GROUPS_CATALOG', 'data/DESI_v5_3_groups.parquet')
 SUPP_CALIB_JSON      = 'data/supplementary_calib_ids_v5_3.json'
 GROUP_Z_MIN   = 0.01   # excluir grupos con z_center ≤ este valor (artifact FoF local)
 PROGRESS_FILE = 'outputs/catalogs/progress.json'
 TEMPLATE_HTML = 'mobile/index.html'
 OUTPUT_HTML   = 'mobile/GalPairs.html'
 RP_MAX_KPC    = 50.0   # extendido desde 20 → permite régimen rp ∈ [20,50] kpc
-RP_V1_KPC     = 20.0   # frontera entre slice v1 (legacy) y v2 (suplementario)
+RP_SPLIT_KPC  = 20.0   # frontera entre zonas interna y externa de trabajo
 MAX_GROUP_MEMBERS_MOBILE = 8   # máximo de coords de miembros embebidos por grupo
 
 # ── Calibración suplementaria ─────────────────────────────────────────────────
 def _load_supp_calib_ids() -> list:
-    """Devuelve lista de pair_uid (str) del set de calibración suplementaria v5_3."""
+    """Devuelve lista de pair_uid (str) del set de calibración suplementaria."""
     p = Path(SUPP_CALIB_JSON)
     if not p.exists():
         print(f'  Aviso: {SUPP_CALIB_JSON} no encontrado — calibración suplementaria no incluida')
@@ -69,22 +61,9 @@ def _load_supp_calib_ids() -> list:
     return ids
 
 
-# ── Catálogo ──────────────────────────────────────────────────────────────────
-def _infer_catalog_version(path: str) -> str:
-    name = Path(path).name.lower()
-    for version in ('v5_3', 'v5_2', 'v5_1', 'v5', 'v4', 'v3'):
-        if version in name:
-            return version
-    return 'unknown'
-
-
 def _pair_uid(id1, id2) -> str:
     a, b = sorted((int(id1), int(id2)))
     return f'{a}:{b}'
-
-
-def _pair_key(item: dict) -> str:
-    return str(item.get('pair_uid') or item.get('id_par'))
 
 
 def _compute_sep(df):
@@ -100,9 +79,15 @@ def _load_desktop_classified(progress_file):
     with open(progress_file) as f:
         state = json.load(f)
     result = {}
-    for entry in state.get('false_positives',  []): result[_pair_key(entry)] = 'FP'
-    for entry in state.get('confirmed_pairs',   []): result[_pair_key(entry)] = 'Pair'
-    for entry in state.get('possible_mergers',  []): result[_pair_key(entry)] = 'PM'
+    for entry in state.get('false_positives',  []):
+        if entry.get('pair_uid'):
+            result[str(entry['pair_uid'])] = 'FP'
+    for entry in state.get('confirmed_pairs',   []):
+        if entry.get('pair_uid'):
+            result[str(entry['pair_uid'])] = 'Pair'
+    for entry in state.get('possible_mergers',  []):
+        if entry.get('pair_uid'):
+            result[str(entry['pair_uid'])] = 'PM'
     result.pop('', None)
     result.pop('None', None)
     return result
@@ -111,13 +96,11 @@ def _load_desktop_classified(progress_file):
 
 def build_catalog() -> dict:
     print('Leyendo catálogo…')
-    version = _infer_catalog_version(CATALOG_PATH)
     try:
         df = pd.read_parquet(CATALOG_PATH, engine='fastparquet')
     except Exception:
         df = pd.read_parquet(CATALOG_PATH, engine='pyarrow')
     print(f'  {len(df):,} pares totales')
-    print(f'  Versión inferida: {version}')
 
     if 'pair_uid' not in df.columns:
         df['pair_uid'] = [_pair_uid(a, b) for a, b in zip(df['id1'], df['id2'])]
@@ -132,27 +115,28 @@ def build_catalog() -> dict:
     if df['pair_uid'].duplicated().any():
         dup = int(df['pair_uid'].duplicated().sum())
         raise RuntimeError(f'El catálogo tiene pair_uid duplicados: {dup}')
-    if 'id_par' in df.columns and 'id_par_v5' not in df.columns and version.startswith('v5'):
-        df['id_par_v5'] = df['id_par']
+    if 'display_id' not in df.columns and 'id_par_v5' in df.columns:
+        df['display_id'] = df['id_par_v5']
+    elif 'display_id' not in df.columns and 'id_par' in df.columns:
+        df['display_id'] = df['id_par']
 
     rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in df.columns), None)
     if rp_col and RP_MAX_KPC:
         df = df[df[rp_col] < RP_MAX_KPC].reset_index(drop=True)
         print(f'  {len(df):,} pares tras filtro rp < {RP_MAX_KPC} kpc')
 
-    # ─── Orden estable: rp<RP_V1_KPC primero (preserva posiciones 0..N1-1
-    #     ya repartidas a usuarios existentes), luego rp∈[RP_V1_KPC, RP_MAX_KPC).
+    # Orden estable: zona interna primero, zona externa después.
     if rp_col:
-        mask_v1 = df[rp_col] < RP_V1_KPC
-        df_v1 = df[mask_v1]
-        df_v2 = df[~mask_v1]
-        df = pd.concat([df_v1, df_v2], ignore_index=True)
-        n_v1 = len(df_v1)
-        n_v2 = len(df_v2)
-        print(f'  Orden estable → v1 (rp<{RP_V1_KPC}): {n_v1:,}  |  v2 (rp∈[{RP_V1_KPC},{RP_MAX_KPC})): {n_v2:,}')
+        mask_inner = df[rp_col] < RP_SPLIT_KPC
+        df_inner = df[mask_inner]
+        df_outer = df[~mask_inner]
+        df = pd.concat([df_inner, df_outer], ignore_index=True)
+        n_inner = len(df_inner)
+        n_outer = len(df_outer)
+        print(f'  Orden estable → interna (rp<{RP_SPLIT_KPC}): {n_inner:,}  |  externa (rp∈[{RP_SPLIT_KPC},{RP_MAX_KPC})): {n_outer:,}')
     else:
-        n_v1 = len(df)
-        n_v2 = 0
+        n_inner = len(df)
+        n_outer = 0
 
     if 'sep_arcsec' not in df.columns:
         df['sep_arcsec'] = _compute_sep(df)
@@ -163,13 +147,12 @@ def build_catalog() -> dict:
 
     has_z1 = 'z1' in df.columns
     has_z2 = 'z2' in df.columns
-    has_id_par_v5 = 'id_par_v5' in df.columns
+    has_display_id = 'display_id' in df.columns
 
     pairs = []
     for _, row in df.iterrows():
         entry = {
             'pair_uid':   str(row['pair_uid']),
-            'id_par':     int(row['id_par']) if 'id_par' in row else int(row.name),
             'ra1':        round(float(row['ra1']),    5),
             'dec1':       round(float(row['dec1']),   5),
             'ra2':        round(float(row['ra2']),    5),
@@ -178,8 +161,8 @@ def build_catalog() -> dict:
             'dec_mid':    round(float(row['dec_mid']), 5),
             'sep_arcsec': round(float(row['sep_arcsec']), 1),
         }
-        if has_id_par_v5 and pd.notna(row['id_par_v5']):
-            entry['id_par_v5'] = int(row['id_par_v5'])
+        if has_display_id and pd.notna(row['display_id']):
+            entry['display_id'] = int(row['display_id'])
         if rp_col:
             entry['rp'] = round(float(row[rp_col]), 1)
         if has_z1:
@@ -199,13 +182,15 @@ def build_catalog() -> dict:
 
     return {
         'exported_at':        datetime.now().isoformat(),
-        'catalog_version':    version,
+        'catalog_version':    'current',
         'cloud_sync_enabled': True,
         'pair_cloud_sync_enabled': True,
         'rp_max_kpc':         RP_MAX_KPC,
-        'rp_v1_kpc':          RP_V1_KPC,
-        'n_pairs_v1':         n_v1,
-        'n_pairs_v2':         n_v2,
+        'rp_split_kpc':       RP_SPLIT_KPC,
+        'n_pairs_inner':      n_inner,
+        'n_pairs_outer':      n_outer,
+        'n_pairs_v1':         n_inner,
+        'n_pairs_v2':         n_outer,
         'total_pairs':        len(pairs),
         'total_groups':       len(groups),
         'desktop_classified': desktop_cl,
@@ -317,16 +302,11 @@ def main():
     size_mb = Path(OUTPUT_HTML).stat().st_size / 1e6
     print(f'\n✓  Generado: {OUTPUT_HTML}')
     print(f'   Pares totales: {catalog["total_pairs"]:,}'
-          f'  (v1 rp<{RP_V1_KPC}: {catalog["n_pairs_v1"]:,}'
-          f'  |  v2 rp∈[{RP_V1_KPC},{RP_MAX_KPC}): {catalog["n_pairs_v2"]:,})')
+          f'  (interna rp<{RP_SPLIT_KPC}: {catalog["n_pairs_inner"]:,}'
+          f'  |  externa rp∈[{RP_SPLIT_KPC},{RP_MAX_KPC}): {catalog["n_pairs_outer"]:,})')
     print(f'   Grupos: {catalog["total_groups"]:,}')
     print(f'   Calib suplementaria: {len(supp_calib_ids)} pair_uids')
     print(f'   Tamaño: {size_mb:.1f} MB')
-    print()
-    print('Siguiente paso — publicar en GitHub Pages:')
-    print('  git add mobile/GalPairs.html')
-    print('  git commit -m "update catalog"')
-    print('  git push')
     print()
     print(f'URL pública: https://fjbautistas.github.io/Galaxy-Pair-Inspector/mobile/GalPairs.html')
     print()

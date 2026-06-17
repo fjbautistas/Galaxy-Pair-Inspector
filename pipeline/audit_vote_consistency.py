@@ -1,21 +1,10 @@
 """
-audit_vote_consistency.py — Audita votos Supabase contra el set visible actual.
+Audit Supabase votes against the active pair/group catalogs.
 
-Cruza:
-  - clasificaciones
-  - partitions
-  - PAIRS_CATALOG / GROUPS_CATALOG
-  - data/supplementary_calib_ids.json
-
-Genera:
-  outputs/audit/vote_consistency_summary.csv
-  outputs/audit/vote_consistency_rows.csv
-  outputs/audit/visible_assignments.csv
-
-Notas:
-  - id_par es el identificador operativo actual.
-  - pair_uid se deriva de (id1, id2) ordenados y sirve como llave estable si
-    cambia el orden del archivo origen o se regenera id_par.
+Outputs:
+    outputs/audit/vote_consistency_summary.csv
+    outputs/audit/vote_consistency_rows.csv
+    outputs/audit/visible_assignments.csv
 """
 
 from __future__ import annotations
@@ -28,50 +17,47 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / 'outputs' / 'audit'
-GROUP_OFFSET = 10_000_000
 RP_MAX_KPC = 50.0
-RP_V1_KPC = 20.0
+RP_SPLIT_KPC = 20.0
 CALIB_PAIRS = 120
 CALIB_GROUPS = 80
 BLOCK_SIZE = 1000
 GROUP_BLOCK_SIZE = 100
-MAX_GROUP_MEMBERS_MOBILE = 10
 GROUP_Z_MIN = 0.01
+SUPP_CALIB_PATH = ROOT / 'data' / 'supplementary_calib_ids_v5_3.json'
 
 
 def _load_env(path: Path = ROOT / '.env') -> dict[str, str]:
     env: dict[str, str] = {}
     try:
-      with open(path, encoding='utf-8') as f:
-          for line in f:
-              line = line.strip()
-              if line and not line.startswith('#') and '=' in line:
-                  k, v = line.split('=', 1)
-                  env[k.strip()] = v.strip()
+        with open(path, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    env[k.strip()] = v.strip()
     except FileNotFoundError:
-      pass
+        pass
     return env
 
 
 _ENV = _load_env()
 SUPABASE_URL = _ENV.get('SUPABASE_URL', '').rstrip('/')
 SERVICE_ROLE_KEY = _ENV.get('SUPABASE_SERVICE_ROLE_KEY', '')
-PAIRS_CATALOG = Path(_ENV.get('PAIRS_CATALOG', ROOT / 'data' / 'DESI_v3_pairs.parquet'))
-GROUPS_CATALOG = Path(_ENV.get('GROUPS_CATALOG', ROOT / 'data' / 'DESI_v3_groups.parquet'))
-SUPP_CALIB_PATH = ROOT / 'data' / 'supplementary_calib_ids.json'
+PAIRS_CATALOG = Path(_ENV.get('PAIRS_CATALOG', ROOT / 'data' / 'DESI_v5_3_pairs.parquet'))
+GROUPS_CATALOG = Path(_ENV.get('GROUPS_CATALOG', ROOT / 'data' / 'DESI_v5_3_groups.parquet'))
 
 
 @dataclass
 class VisibleSet:
-    visible_ids: set[int]
-    pair_ids: set[int]
-    group_ids_supabase: set[int]
+    item_uids: set[str]
+    pair_uids: set[str]
+    group_uids: set[str]
 
 
 def _headers() -> dict[str, str]:
@@ -107,6 +93,17 @@ def _pair_uid(id1: int, id2: int) -> str:
     return f'{a}:{b}'
 
 
+def _int_or_none(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    return int(value)
+
+
 def load_pairs() -> tuple[pd.DataFrame, int]:
     df = pd.read_parquet(PAIRS_CATALOG)
     rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in df.columns), None)
@@ -114,76 +111,81 @@ def load_pairs() -> tuple[pd.DataFrame, int]:
         raise RuntimeError('El catálogo de pares no tiene columna rp_kpc/rp_phys_kpc/rp.')
 
     df = df[df[rp_col] < RP_MAX_KPC].reset_index(drop=True)
-    mask_v1 = df[rp_col] < RP_V1_KPC
-    df = pd.concat([df[mask_v1], df[~mask_v1]], ignore_index=True)
-    df['pair_uid'] = [_pair_uid(a, b) for a, b in zip(df['id1'], df['id2'])]
-    return df, int(mask_v1.sum())
+    if 'pair_uid' not in df.columns:
+        df['pair_uid'] = [_pair_uid(a, b) for a, b in zip(df['id1'], df['id2'])]
+    mask_inner = df[rp_col] < RP_SPLIT_KPC
+    df = pd.concat([df[mask_inner], df[~mask_inner]], ignore_index=True)
+    return df, int(mask_inner.sum())
 
 
-def load_groups() -> list[int]:
+def load_groups() -> list[dict]:
     if not GROUPS_CATALOG.exists():
         return []
     df = pd.read_parquet(GROUPS_CATALOG)
-    groups: list[int] = []
+    groups: list[dict] = []
     for gid, edges in df.groupby('fof_component_id'):
         half1 = edges[['id1', 'ra1', 'dec1', 'z1']].rename(
             columns={'id1': 'id', 'ra1': 'ra', 'dec1': 'dec', 'z1': 'z'})
         half2 = edges[['id2', 'ra2', 'dec2', 'z2']].rename(
             columns={'id2': 'id', 'ra2': 'ra', 'dec2': 'dec', 'z2': 'z'})
         members = pd.concat([half1, half2]).drop_duplicates('id')
-        z_c = float(members['z'].mean())
-        if z_c <= GROUP_Z_MIN:
+        if float(members['z'].mean()) <= GROUP_Z_MIN:
             continue
-        groups.append(int(gid))
+        stable_system_id = None
+        if 'stable_system_id' in edges.columns:
+            values = edges['stable_system_id'].dropna().astype(str).unique()
+            if len(values):
+                stable_system_id = values[0]
+        groups.append({
+            'group_id': int(gid),
+            'group_uid': stable_system_id or str(int(gid)),
+            'stable_system_id': stable_system_id,
+        })
     return groups
 
 
-def load_supp_calib_ids() -> list[int]:
+def load_supp_calib_ids() -> set[str]:
     if not SUPP_CALIB_PATH.exists():
-        return []
+        return set()
     with open(SUPP_CALIB_PATH, encoding='utf-8') as f:
         data = json.load(f)
-    return [int(x) for x in data.get('id_par', [])]
+    return {str(x) for x in data.get('pair_uid', [])}
 
 
-def _int_or_none(value) -> int | None:
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return None
-    return int(value)
-
-
-def build_visible_set(partition: dict, pairs: pd.DataFrame, n_v1: int,
-                      group_ids: list[int], supp_ids: list[int]) -> VisibleSet:
-    pair_ids: set[int] = set(int(x) for x in pairs.iloc[:CALIB_PAIRS]['id_par'])
-    pair_ids.update(supp_ids)
+def build_visible_set(partition: dict, pairs: pd.DataFrame, n_inner: int,
+                      groups: list[dict], supp_pair_uids: set[str]) -> VisibleSet:
+    pair_uids: set[str] = set(pairs.iloc[:CALIB_PAIRS]['pair_uid'].astype(str))
+    pair_uids.update(supp_pair_uids)
 
     ws = _int_or_none(partition.get('work_start')) or CALIB_PAIRS
     we = _int_or_none(partition.get('work_end')) or ws
-    ws2 = _int_or_none(partition.get('work_start_v2'))
-    we2 = _int_or_none(partition.get('work_end_v2'))
+    ws_outer = _int_or_none(partition.get('work_start_v2'))
+    we_outer = _int_or_none(partition.get('work_end_v2'))
 
-    if ws2 is None and we2 is None and (we - ws) <= BLOCK_SIZE:
-        pair_ids.update(int(x) for x in pairs.iloc[ws:we]['id_par'])
+    if ws_outer is None and we_outer is None and (we - ws) <= BLOCK_SIZE:
+        pair_uids.update(pairs.iloc[ws:we]['pair_uid'].astype(str))
     else:
-        q_v1 = BLOCK_SIZE // 2
-        q_v2 = BLOCK_SIZE - q_v1
-        v1_start = max(CALIB_PAIRS, min(ws, n_v1))
-        v1_end = max(v1_start, min(we, n_v1))
-        pair_ids.update(int(x) for x in pairs.iloc[v1_start:v1_end].head(q_v1)['id_par'])
-        if ws2 is not None and we2 is not None:
-            pair_ids.update(int(x) for x in pairs.iloc[ws2:we2].head(q_v2)['id_par'])
-        elif ws >= n_v1:
-            pair_ids.update(int(x) for x in pairs.iloc[ws:we].head(q_v2)['id_par'])
+        q_inner = round(BLOCK_SIZE * 0.50)
+        q_outer = BLOCK_SIZE - q_inner
+        inner_start = max(CALIB_PAIRS, min(ws, n_inner))
+        inner_end = max(inner_start, min(we, n_inner))
+        pair_uids.update(pairs.iloc[inner_start:inner_end].head(q_inner)['pair_uid'].astype(str))
+        if ws_outer is not None and we_outer is not None:
+            pair_uids.update(pairs.iloc[ws_outer:we_outer].head(q_outer)['pair_uid'].astype(str))
+        elif ws >= n_inner:
+            pair_uids.update(pairs.iloc[ws:we].head(q_outer)['pair_uid'].astype(str))
 
-    visible_group_ids = set(group_ids[:CALIB_GROUPS])
+    group_uids = {str(g['group_uid']) for g in groups[:CALIB_GROUPS]}
     gs = _int_or_none(partition.get('group_work_start'))
     ge = _int_or_none(partition.get('group_work_end'))
     if gs is not None and ge is not None:
-        visible_group_ids.update(group_ids[gs:ge])
+        group_uids.update(str(g['group_uid']) for g in groups[gs:ge])
 
-    group_supabase_ids = {gid + GROUP_OFFSET for gid in visible_group_ids}
-    visible_ids = set(pair_ids) | group_supabase_ids
-    return VisibleSet(visible_ids=visible_ids, pair_ids=pair_ids, group_ids_supabase=group_supabase_ids)
+    return VisibleSet(
+        item_uids=pair_uids | group_uids,
+        pair_uids=pair_uids,
+        group_uids=group_uids,
+    )
 
 
 def main() -> None:
@@ -193,12 +195,11 @@ def main() -> None:
         sys.exit(f'ERROR: no existe PAIRS_CATALOG: {PAIRS_CATALOG}')
 
     print('Cargando catálogos locales...')
-    pairs, n_v1 = load_pairs()
-    group_ids = load_groups()
-    supp_ids = load_supp_calib_ids()
-    pair_id_to_uid = dict(zip(pairs['id_par'].astype(int), pairs['pair_uid']))
-    valid_pair_ids = set(pair_id_to_uid)
-    valid_group_supabase_ids = {gid + GROUP_OFFSET for gid in group_ids}
+    pairs, n_inner = load_pairs()
+    groups = load_groups()
+    supp_pair_uids = load_supp_calib_ids()
+    valid_pair_uids = set(pairs['pair_uid'].astype(str))
+    valid_group_uids = {str(g['group_uid']) for g in groups}
 
     print('Descargando Supabase...')
     partitions = _fetch_table('partitions', order='device_id.asc')
@@ -206,40 +207,37 @@ def main() -> None:
     partitions_by_device = {str(p['device_id']): p for p in partitions}
 
     visible_by_device = {
-        dev: build_visible_set(p, pairs, n_v1, group_ids, supp_ids)
+        dev: build_visible_set(p, pairs, n_inner, groups, supp_pair_uids)
         for dev, p in partitions_by_device.items()
     }
 
     visible_rows = []
-    for dev, vs in visible_by_device.items():
-        for id_par in sorted(vs.pair_ids):
-            visible_rows.append({
-                'device_id': dev,
-                'id_par': id_par,
-                'item_type': 'pair',
-                'pair_uid': pair_id_to_uid.get(id_par, ''),
-            })
-        for id_par in sorted(vs.group_ids_supabase):
-            visible_rows.append({
-                'device_id': dev,
-                'id_par': id_par,
-                'item_type': 'group',
-                'pair_uid': '',
-            })
+    for dev, visible in visible_by_device.items():
+        for uid in sorted(visible.pair_uids):
+            visible_rows.append({'device_id': dev, 'item_type': 'pair', 'item_uid': uid})
+        for uid in sorted(visible.group_uids):
+            visible_rows.append({'device_id': dev, 'item_type': 'group', 'item_uid': uid})
 
     valid_classes = {'FP', 'Pair', 'PM', 'GROUP', 'PP'}
     audit_rows = []
     for row in votes:
         dev = str(row.get('device_id', ''))
-        id_par = int(row.get('id_par'))
+        item_type = str(row.get('item_type') or '')
+        item_uid = str(row.get('item_uid') or '')
         classification = str(row.get('classification', ''))
-        item_type = 'group' if id_par >= GROUP_OFFSET else 'pair'
-        in_catalog = id_par in (valid_group_supabase_ids if item_type == 'group' else valid_pair_ids)
         has_partition = dev in partitions_by_device
-        visible = has_partition and id_par in visible_by_device[dev].visible_ids
-        invalid_class = classification not in valid_classes
-        if invalid_class:
+        visible = has_partition and item_uid in visible_by_device[dev].item_uids
+        if item_type == 'pair':
+            in_catalog = item_uid in valid_pair_uids
+        elif item_type == 'group':
+            in_catalog = item_uid in valid_group_uids
+        else:
+            in_catalog = False
+
+        if classification not in valid_classes:
             status = 'invalid_class'
+        elif item_type not in {'pair', 'group'}:
+            status = 'invalid_item_type'
         elif not has_partition:
             status = 'unknown_device'
         elif not in_catalog:
@@ -247,17 +245,20 @@ def main() -> None:
         elif visible:
             status = 'visible_current_set'
         else:
-            status = 'historical_outside_current_set'
+            status = 'outside_current_assignment'
 
         audit_rows.append({
             'device_id': dev,
-            'id_par': id_par,
             'item_type': item_type,
-            'pair_uid': pair_id_to_uid.get(id_par, ''),
+            'item_uid': item_uid,
+            'pair_uid': row.get('pair_uid'),
+            'stable_system_id': row.get('stable_system_id'),
+            'display_id': row.get('id_par_v5'),
             'classification': classification,
             'status': status,
             'visible_current_set': visible,
             'in_current_catalog': in_catalog,
+            'source': row.get('source'),
             'exported_at': row.get('exported_at'),
             'created_at': row.get('created_at'),
         })
@@ -269,9 +270,9 @@ def main() -> None:
         summary = (
             audit.groupby('device_id')
             .agg(
-                total_votes=('id_par', 'count'),
+                total_votes=('item_uid', 'count'),
                 visible_votes=('visible_current_set', 'sum'),
-                historical_or_invalid_votes=('status', lambda s: int((s != 'visible_current_set').sum())),
+                outside_or_invalid_votes=('status', lambda s: int((s != 'visible_current_set').sum())),
                 pair_votes=('item_type', lambda s: int((s == 'pair').sum())),
                 group_votes=('item_type', lambda s: int((s == 'group').sum())),
                 invalid_class_votes=('status', lambda s: int((s == 'invalid_class').sum())),
@@ -300,10 +301,7 @@ def main() -> None:
     print(f'  {summary_file}')
     print(f'  {audit_file}')
     print(f'  {visible_file}')
-    print('\nNota id_total:')
-    print('  Este catálogo no trae id_total. El reporte incluye pair_uid = min(id1,id2):max(id1,id2)')
-    print('  como llave estable para migrar/reconocer pares si cambia el archivo origen.')
-    print(f'  Ejecutado: {datetime.now().isoformat(timespec="seconds")}')
+    print(f'\nEjecutado: {datetime.now().isoformat(timespec="seconds")}')
 
 
 if __name__ == '__main__':

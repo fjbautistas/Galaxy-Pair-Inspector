@@ -26,8 +26,8 @@ mobile_cl_*.json
 !mobile/assets/
 !mobile/assets/completion-galaxy-heart.png
 
-# Excepciones: datos canónicos del pipeline (deben versionarse)
-!data/supplementary_calib_ids.json
+# Excepciones: datos canónicos del pipeline (deben versionarse si existen)
+!data/supplementary_calib_ids_v5_3.json
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/

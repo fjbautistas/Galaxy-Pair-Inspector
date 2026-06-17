@@ -85,7 +85,7 @@ def _supabase_upsert(item_type: str, item_uid: str, classification: str,
                     'p_stable_system_id': stable_system_id,
                     'p_id_par_v5':        id_par_v5,
                     'p_classification':   classification,
-                    'p_source':           'v5_3_app',
+                    'p_source':           'app',
                     'p_exported_at':      datetime.now().isoformat(),
                 },
                 timeout=10,
@@ -165,9 +165,11 @@ def _pair_uid_from_row(row: dict) -> str:
 
 
 def _pair_display_id(row: dict):
-    if row.get('id_par_v5') is not None:
-        return row.get('id_par_v5')
-    return row.get('id_par')
+    for key in ('display_id', 'id_par_v5', 'id_par'):
+        value = row.get(key)
+        if value is not None and not pd.isna(value):
+            return value
+    return None
 
 
 def _pair_file_key(row: dict) -> str:
@@ -391,7 +393,7 @@ def annotate_image(img: Image.Image, row: dict, rp_col: 'str | None') -> Image.I
     # ID del par — arriba izquierda
     display_id = _pair_display_id(row)
     if display_id is not None:
-        id_label = f'id_par_v5 #{int(display_id)}' if row.get('id_par_v5') is not None else f'par #{int(display_id)}'
+        id_label = f'ID #{int(display_id)}'
         draw.rectangle([margin-2, margin-2,
                         margin + len(id_label)*CH + 2, margin + 10],
                        fill=(0, 0, 0, 200))
@@ -648,9 +650,10 @@ class PairValidator:
             dup = int(df_full['pair_uid'].duplicated().sum())
             raise ValueError(f'El catálogo tiene pair_uid duplicados: {dup}')
 
-        catalog_name = Path(catalog_path).name.lower()
-        if 'id_par' in df_full.columns and 'id_par_v5' not in df_full.columns and 'v5' in catalog_name:
-            df_full['id_par_v5'] = df_full['id_par']
+        if 'display_id' not in df_full.columns and 'id_par_v5' in df_full.columns:
+            df_full['display_id'] = df_full['id_par_v5']
+        elif 'display_id' not in df_full.columns and 'id_par' in df_full.columns:
+            df_full['display_id'] = df_full['id_par']
         self.pair_cloud_sync_enabled = True
 
         self.rp_col = None
@@ -816,8 +819,7 @@ class PairValidator:
             'pair_uid'  : self._row_key(row),
             'id1'       : int(row['id1']),
             'id2'       : int(row['id2']),
-            'id_par_v5' : int(row['id_par_v5']) if 'id_par_v5' in row else None,
-            'id_par'    : int(row['id_par']) if 'id_par' in row else None,
+            'display_id': int(row['display_id']) if 'display_id' in row and pd.notna(row['display_id']) else None,
             'ra1'       : float(row['ra1']), 'dec1': float(row['dec1']),
             'ra2'       : float(row['ra2']), 'dec2': float(row['dec2']),
             'rp_kpc'    : float(row[self.rp_col]) if self.rp_col and self.rp_col in row else None,
@@ -836,8 +838,7 @@ class PairValidator:
             'pair_uid'  : self._row_key(row),
             'id1'       : int(row['id1']),
             'id2'       : int(row['id2']),
-            'id_par_v5' : int(row['id_par_v5']) if 'id_par_v5' in row else None,
-            'id_par'    : int(row['id_par']) if 'id_par' in row else None,
+            'display_id': int(row['display_id']) if 'display_id' in row and pd.notna(row['display_id']) else None,
             'ra1'       : float(row['ra1']),  'dec1': float(row['dec1']),
             'ra2'       : float(row['ra2']),  'dec2': float(row['dec2']),
             'rp_kpc'    : float(row[self.rp_col]) if self.rp_col and self.rp_col in row else None,
@@ -1678,8 +1679,8 @@ class PairInspectorApp:
 
     def _cloud_upsert_pair(self, row: dict, classification: str):
         pair_uid = _pair_uid_from_row(row)
-        raw_id_par_v5 = row.get('id_par_v5')
-        id_par_v5 = int(raw_id_par_v5) if raw_id_par_v5 is not None and not pd.isna(raw_id_par_v5) else None
+        display_id = _pair_display_id(row)
+        id_par_v5 = int(display_id) if display_id is not None and not pd.isna(display_id) else None
         self._cloud_upsert(
             item_type='pair',
             item_uid=pair_uid,
@@ -2402,18 +2403,18 @@ class PairInspectorApp:
             try:
                 target_id = int(query)
             except ValueError:
-                messagebox.showwarning('Búsqueda', 'Escribe un id_par_v5, group_id o pair_uid.')
+                messagebox.showwarning('Búsqueda', 'Escribe un display_id, group_id o pair_uid.')
                 return
 
         found = []
 
-        # ── Buscar como pair_uid o id_par_v5/display ─────────────────────────
+        # ── Buscar como pair_uid o display_id ────────────────────────────────
         pv  = self._pair_validator
         if target_pair_uid is not None:
             mask = pv.df_full['pair_uid'].astype(str) == target_pair_uid
             in_partition = (pv.df['pair_uid'].astype(str) == target_pair_uid).any()
         else:
-            col = 'id_par_v5' if 'id_par_v5' in pv.df_full.columns else ('id_par' if 'id_par' in pv.df_full.columns else None)
+            col = 'display_id' if 'display_id' in pv.df_full.columns else None
             mask = pv.df_full[col] == target_id if col else pd.Series(False, index=pv.df_full.index)
             in_partition = (pv.df[col] == target_id).any() if col else False
 
@@ -2443,7 +2444,7 @@ class PairInspectorApp:
         if not found:
             messagebox.showwarning(
                 'Búsqueda',
-                f'{query} no encontrado como pair_uid, id_par_v5 ni group_id.')
+                f'{query} no encontrado como pair_uid, display_id ni group_id.')
             return
 
         labels = ' + '.join('par' if t == 'pair' else 'grupo' for t, _ in found)
@@ -2655,7 +2656,7 @@ class PairInspectorApp:
         DETAIL_PX = 520   # tamaño de la imagen en la ventana de detalle
 
         win = tk.Toplevel(self.root)
-        title_id = f'id_par_v5 #{int(par_id)}' if par_id is not None else pair_uid
+        title_id = f'ID #{int(par_id)}' if par_id is not None else pair_uid
         win.title(f'Detalle — Par {title_id}')
         win.configure(bg='#111111')
         win.resizable(False, False)
@@ -2675,7 +2676,7 @@ class PairInspectorApp:
 
         # ── Coordenadas copiables ─────────────────────────────────────────────
         coord_var = tk.StringVar()
-        id_text = f'id_par_v5 {int(par_id)}  ' if par_id is not None else ''
+        id_text = f'ID {int(par_id)}  ' if par_id is not None else ''
         if rp_val is not None:
             coord_var.set(f'{id_text}pair_uid {pair_uid}  RA {ra_mid:.5f}  Dec {dec_mid:.5f}  rp={rp_val:.2f} kpc')
         else:

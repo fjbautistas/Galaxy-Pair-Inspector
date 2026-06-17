@@ -896,7 +896,7 @@
   const IMG_TIMEOUT_MS     = 22000;  // mostrar acciones si Legacy Survey tarda demasiado
   const IMG_RETRY_DELAY_MS = 1500;   // espera entre reintento silencioso tras 429/error
   const IMG_MAX_RETRIES    = 2;      // reintentos silenciosos antes de mostrar UI de error
-  const CATALOG_VERSION    = (window._CATALOG && window._CATALOG.catalog_version) || 'v3';
+  const CATALOG_VERSION    = (window._CATALOG && window._CATALOG.catalog_version) || 'current';
   const CLOUD_SYNC         = !window._CATALOG || window._CATALOG.cloud_sync_enabled !== false;
   const STORAGE_KEY        = `galaxyPairsInspector_${CATALOG_VERSION}`;
   const MAX_GROUP_MARKERS  = 8;
@@ -919,9 +919,9 @@
   const _cloudTimers   = {};
 
   // ── Estado para flujo two-slice (calibración suplementaria + slice v2) ─
-  let _basePairs       = [];   // referencia al catálogo completo (para reconstruir el work block tras claim_v2_slice)
+  let _basePairs       = [];   // referencia al catálogo completo para construir el bloque visible
   let _baseGroups      = [];
-  let _partition       = null; // partition actual del dispositivo (mutable: claim_v2_slice la actualiza)
+  let _partition       = null; // partition actual del dispositivo
   let _seed            = 0;    // seed personal del dispositivo (para reusarlo al reconstruir)
   let _calibIdSet      = new Set();  // ids de items considerados de calibración para este usuario
 
@@ -933,7 +933,7 @@
   function itemUid(item)  { return isGroup(item) ? groupKey(item) : pairKey(item); }
   function itemKey(item)  { return `${itemType(item)}:${itemUid(item)}`; }
   function pairDisplayId(item) {
-    return item.id_par_v5 !== undefined ? item.id_par_v5 : item.id_par;
+    return item.display_id !== undefined ? item.display_id : item.id_par_v5;
   }
   function cloudRowForItem(item, classification) {
     const type = itemType(item);
@@ -946,7 +946,7 @@
       stable_system_id: type === 'group' ? uid : null,
       id_par_v5: type === 'pair' ? pairDisplayId(item) : null,
       classification,
-      source: 'v5_3_app',
+      source: 'app',
       exported_at: new Date().toISOString(),
     };
   }
@@ -1973,8 +1973,7 @@
         const item = lookup[key] || {};
         pairEntries.push({
           pair_uid: key.startsWith('pair:') ? key.slice('pair:'.length) : key,
-          id_par_v5: item.id_par_v5,
-          id_par: item.id_par,
+          display_id: pairDisplayId(item),
           classification: cl,
         });
       }
@@ -2008,7 +2007,7 @@
   // ═══════════════════════════════════════════════════════════════════════
   const CALIB_PAIRS        = 120;   // pares de calibración base (rp<20 kpc, iguales para todos)
   const CALIB_GROUPS       = 80;    // grupos de calibración (iguales para todos)
-  const CALIB_SIZE         = CALIB_PAIRS;  // alias legacy; calibración real incluye supp
+  const CALIB_SIZE         = CALIB_PAIRS;
   const BLOCK_SIZE         = 1000;
   const GROUP_BLOCK_SIZE   = 100;
   const WORK_V1_FRACTION   = 0.50;  // 50% rp<20, 50% rp∈[20,50)
@@ -2094,7 +2093,7 @@
       }
     } catch (_) {}
 
-    // Fallback legacy: función RPC antigua.
+    // Fallback RPC with the compact partition contract.
     try {
       const r = await fetch(`${url}/rest/v1/rpc/assign_partition`, {
         method:  'POST',
@@ -2183,7 +2182,7 @@
 
       const seed = partition ? partition.calib_seed : strToSeed(deviceId);
 
-      // Guardar referencias globales para reconstrucción tras claim_v2_slice
+      // Guardar referencias globales para construir la vista del dispositivo
       _basePairs  = basePairs;
       _baseGroups = baseGroups;
       _partition  = partition;

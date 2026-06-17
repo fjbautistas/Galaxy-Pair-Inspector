@@ -54,11 +54,11 @@ CATALOG_PATH     = _env.get('PAIRS_CATALOG', '')
 # ── Constantes ────────────────────────────────────────────────────────────────
 CALIB_PAIRS        = 120     # pares de calibración compartidos por todos los usuarios
 CALIB_GROUPS       = 80      # grupos de calibración compartidos por todos los usuarios
-CALIB_SIZE         = CALIB_PAIRS   # alias: work_start del primer dispositivo
+CALIB_SIZE         = CALIB_PAIRS
 BLOCK_SIZE         = 1_000
 GROUP_BLOCK_SIZE   = 100     # grupos de trabajo por dispositivo
-RP_V1_KPC          = 20.0
-WORK_V1_FRACTION   = 0.50
+RP_SPLIT_KPC       = 20.0
+WORK_INNER_FRACTION = 0.50
 
 # ── Helpers REST ──────────────────────────────────────────────────────────────
 def _headers():
@@ -124,9 +124,9 @@ def register(device_id: str) -> dict:
     """
     catalog_len = pq.read_metadata(CATALOG_PATH).num_rows
     rp = pd.read_parquet(CATALOG_PATH, columns=['rp_kpc'])['rp_kpc']
-    n_v1 = int((rp < RP_V1_KPC).sum())
-    q_v1 = round(BLOCK_SIZE * WORK_V1_FRACTION)
-    q_v2 = BLOCK_SIZE - q_v1
+    n_inner = int((rp < RP_SPLIT_KPC).sum())
+    q_inner = round(BLOCK_SIZE * WORK_INNER_FRACTION)
+    q_outer = BLOCK_SIZE - q_inner
     partitions = _get_all_partitions()
 
     # ¿Ya está registrado?
@@ -136,25 +136,25 @@ def register(device_id: str) -> dict:
 
     # Calcular primeros huecos disponibles por zona, reutilizando espacios de
     # particiones inactivas eliminadas en Supabase.
-    occupied_v1 = [
-        (int(p.get('work_start', CALIB_SIZE)), min(int(p.get('work_end', CALIB_SIZE)), n_v1))
+    occupied_inner = [
+        (int(p.get('work_start', CALIB_SIZE)), min(int(p.get('work_end', CALIB_SIZE)), n_inner))
         for p in partitions
-        if int(p.get('work_start', 0)) < n_v1
+        if int(p.get('work_start', 0)) < n_inner
     ]
-    occupied_v2 = [
+    occupied_outer = [
         (int(p.get('work_start_v2')), int(p.get('work_end_v2')))
         for p in partitions
         if p.get('work_start_v2') is not None and p.get('work_end_v2') is not None
     ] + [
         (int(p.get('work_start')), int(p.get('work_end')))
         for p in partitions
-        if int(p.get('work_start', 0)) >= n_v1
+        if int(p.get('work_start', 0)) >= n_inner
     ]
 
-    work_start    = _first_free_interval(occupied_v1, CALIB_SIZE, n_v1, q_v1)
-    work_end      = work_start + q_v1
-    work_start_v2 = _first_free_interval(occupied_v2, n_v1, catalog_len, q_v2)
-    work_end_v2   = work_start_v2 + q_v2
+    work_start    = _first_free_interval(occupied_inner, CALIB_SIZE, n_inner, q_inner)
+    work_end      = work_start + q_inner
+    work_start_v2 = _first_free_interval(occupied_outer, n_inner, catalog_len, q_outer)
+    work_end_v2   = work_start_v2 + q_outer
 
     # Calcular siguiente bloque de grupos disponible
     if partitions:
@@ -200,10 +200,10 @@ def print_summary(result: dict) -> None:
           f'+ {CALIB_GROUPS} grupos (0–{CALIB_GROUPS-1}) '
           f'= 200 ítems base (+150 pares suplementarios en mobile), seed={p["calib_seed"]}')
     print(f'  Bloque pares      : índices {p["work_start"]}–{p["work_end"] - 1} '
-          f'({n_pairs:,} pares rp<20)')
+          f'({n_pairs:,} pares zona interna)')
     if p.get('work_start_v2') is not None and p.get('work_end_v2') is not None:
-        print(f'  Bloque pares v2   : índices {p["work_start_v2"]}–{p["work_end_v2"] - 1} '
-              f'({p["work_end_v2"] - p["work_start_v2"]:,} pares rp≥20)')
+        print(f'  Bloque pares ext. : índices {p["work_start_v2"]}–{p["work_end_v2"] - 1} '
+              f'({p["work_end_v2"] - p["work_start_v2"]:,} pares zona externa)')
     print(f'  Bloque grupos     : índices {gs}–{ge_val - 1 if isinstance(ge_val, int) else "?"} '
           f'({n_groups} grupos)')
     if result['status'] == 'existing':

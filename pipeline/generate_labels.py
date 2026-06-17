@@ -1,12 +1,9 @@
 """
-generate_labels.py — Descarga clasificaciones de Supabase y genera labels.csv.
+Download Supabase classifications and export majority-vote labels.
 
-Esquema operacional v5_3:
-    - pares: item_type='pair', item_uid=pair_uid
-    - grupos: item_type='group', item_uid=stable_system_id/group_uid
-
-El script no cruza versiones por id_par. id_par_v5 se conserva solo como
-identificador de despliegue cuando viene en Supabase o en el catálogo actual.
+Operational keys:
+    - pairs: item_type='pair', item_uid=pair_uid
+    - groups: item_type='group', item_uid=stable_system_id/group_uid
 
 Salidas:
     outputs/catalogs/labels.csv
@@ -47,11 +44,11 @@ def _load_env(path='.env'):
 _env = _load_env()
 SUPABASE_URL = _env.get('SUPABASE_URL', '').rstrip('/')
 ANON_KEY = _env.get('SUPABASE_SERVICE_ROLE_KEY', '') or _env.get('SUPABASE_ANON_KEY', '')
-PAIRS_CATALOG = _env.get('PAIRS_CATALOG', '')
-GROUPS_CATALOG = _env.get('GROUPS_CATALOG', '')
+PAIRS_CATALOG = _env.get('PAIRS_CATALOG', 'data/DESI_v5_3_pairs.parquet')
+GROUPS_CATALOG = _env.get('GROUPS_CATALOG', 'data/DESI_v5_3_groups.parquet')
 CALIB_PAIRS = 120
 CALIB_GROUPS = 80
-RP_V1_KPC = 20.0
+RP_SPLIT_KPC = 20.0
 SUPP_CALIB_JSON = 'data/supplementary_calib_ids_v5_3.json'
 OUTPUT_DIR = Path('outputs/catalogs')
 
@@ -69,27 +66,18 @@ def _load_supp_calib_ids() -> set:
         return set()
 
 
-def _infer_catalog_version(path: str) -> str:
-    name = Path(path).name.lower()
-    for version in ('v5_3', 'v5_2', 'v5_1', 'v5', 'v4', 'v3'):
-        if version in name:
-            return version
-    return 'unknown'
-
-
 def _pair_uid(id1, id2) -> str:
     a, b = sorted((int(id1), int(id2)))
     return f'{a}:{b}'
 
 
-def _load_pair_lookup(path: str) -> tuple[str, dict[str, dict]]:
+def _load_pair_lookup(path: str) -> dict[str, dict]:
     if not path or not Path(path).exists():
-        return 'unknown', {}
+        return {}
 
-    version = _infer_catalog_version(path)
     all_cols = pd.read_parquet(path, columns=None).columns
     required = ['id1', 'id2']
-    optional = ['id_par', 'pair_uid']
+    optional = ['display_id', 'id_par_v5', 'id_par', 'pair_uid']
     rp_col = next((c for c in ('rp_kpc', 'rp_phys_kpc', 'rp') if c in all_cols), None)
     cols = required + [c for c in optional if c in all_cols]
     if rp_col:
@@ -98,21 +86,25 @@ def _load_pair_lookup(path: str) -> tuple[str, dict[str, dict]]:
 
     if 'pair_uid' not in pairs.columns:
         pairs['pair_uid'] = [_pair_uid(a, b) for a, b in zip(pairs['id1'], pairs['id2'])]
+    if 'display_id' not in pairs.columns and 'id_par_v5' in pairs.columns:
+        pairs['display_id'] = pairs['id_par_v5']
+    elif 'display_id' not in pairs.columns and 'id_par' in pairs.columns:
+        pairs['display_id'] = pairs['id_par']
 
     if rp_col:
-        mask_v1 = pairs[rp_col] < RP_V1_KPC
-        pairs = pd.concat([pairs[mask_v1], pairs[~mask_v1]], ignore_index=True)
+        mask_inner = pairs[rp_col] < RP_SPLIT_KPC
+        pairs = pd.concat([pairs[mask_inner], pairs[~mask_inner]], ignore_index=True)
 
     lookup = {}
     for idx, row in enumerate(pairs.itertuples(index=False)):
         row_dict = row._asdict()
         pair_uid = str(row_dict['pair_uid'])
-        id_par_v5 = row_dict.get('id_par') if version.startswith('v5') and 'id_par' in row_dict else None
+        display_id = row_dict.get('display_id')
         lookup[pair_uid] = {
             'order': idx,
-            'id_par_v5': int(id_par_v5) if id_par_v5 is not None and not pd.isna(id_par_v5) else None,
+            'display_id': int(display_id) if display_id is not None and not pd.isna(display_id) else None,
         }
-    return version, lookup
+    return lookup
 
 
 def _load_group_lookup(path: str) -> dict[str, dict]:
@@ -226,10 +218,9 @@ def main():
         sys.exit(1)
 
     supp_calib_ids = _load_supp_calib_ids()
-    catalog_version, pair_lookup = _load_pair_lookup(PAIRS_CATALOG)
+    pair_lookup = _load_pair_lookup(PAIRS_CATALOG)
     group_lookup = _load_group_lookup(GROUPS_CATALOG)
     print(f'Catálogo pares: {PAIRS_CATALOG or "no configurado"}')
-    print(f'  Versión inferida: {catalog_version}')
     print(f'  Pares en lookup: {len(pair_lookup):,}')
     print(f'  Grupos en lookup: {len(group_lookup):,}')
 
@@ -247,19 +238,19 @@ def main():
         pair_uid = row['pair_uid']
         catalog_meta = pair_lookup.get(pair_uid, {})
         supabase_meta = row.pop('_meta', {})
-        id_par_v5 = supabase_meta.get('id_par_v5')
-        if id_par_v5 is None:
-            id_par_v5 = catalog_meta.get('id_par_v5')
+        display_id = catalog_meta.get('display_id')
+        if display_id is None:
+            display_id = supabase_meta.get('id_par_v5')
         labeled_pairs.append({
             'pair_uid': pair_uid,
-            'id_par_v5': int(id_par_v5) if id_par_v5 is not None and not pd.isna(id_par_v5) else None,
+            'display_id': int(display_id) if display_id is not None and not pd.isna(display_id) else None,
             'classification': row['classification'],
             'n_votes': row['n_votes'],
             'agreement': row['agreement'],
             '_order': catalog_meta.get('order'),
         })
 
-    pair_fields = ['pair_uid', 'id_par_v5', 'classification', 'n_votes', 'agreement']
+    pair_fields = ['pair_uid', 'display_id', 'classification', 'n_votes', 'agreement']
     calib_pairs = [r for r in labeled_pairs
                    if (r.get('_order') is not None and r['_order'] < CALIB_PAIRS)
                    or r['pair_uid'] in supp_calib_ids]
