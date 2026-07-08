@@ -18,17 +18,20 @@ and enable **cross-classifier normalization**.
 
 Each user gets: a shared **550-pair calibration set** (275 single-vote from 5–50 to
 lift them to multi-vote + 275 new in 50–80; this is also the RF held-out eval set) +
-**900 new pairs** (v1 5–50 / v2 50–80, ~58/42) + interleaved **groups**
-(`DESI_v6_groups`, 1 group per 5 pairs). The **pair type** (BGS-BGS, LRG-LRG, …) is
-shown in the UI, below the coordinates.
+**950 new pairs** (v1 5–50 / v2 50–80, ~58/42) + interleaved **groups**
+(`DESI_v6_groups`, 1 group per 5 pairs) — **1500 items per user**. The **pair type**
+(BGS-BGS, LRG-LRG, …) and a readable **`display_id`** are shown in the UI.
 
 - Builder: `pipeline/build_campaign_v6.py` → `mobile/catalog_v6.json`,
   `data/supplementary_calib_ids_v6.json`, and the deployable `mobile/GalPairs.html`.
 - Full notes: [`outputs/campaign_v6_notes.md`](outputs/campaign_v6_notes.md).
 - `hidden_triples` are **not** in the visual set (their third member is RELEASE=0,
   i.e. no Legacy imaging → not visually inspectable); they remain a counting systematic.
-- Votes and label corrections are keyed by `pair_uid`, so they **persist** across the
-  catalog change; the schema is unchanged (`assign_partition_mixed` already existed).
+- **Votes and partitions are namespaced by `catalog_version`** (see
+  `supabase/migration_v6_catalog_version.sql`): every user starts a new campaign at the
+  full total, while previous votes are preserved (tagged `v5_3`). Votes remain keyed by
+  `pair_uid`, so the same pair can hold an independent vote per campaign. Apply the
+  migration once before deploying v6.
 
 ## Core Model
 
@@ -207,6 +210,7 @@ Important columns in `clasificaciones`:
 | `stable_system_id` | Group/system key, populated for group rows. |
 | `id_par_v5` | Optional display integer retained for compatibility with the active database schema. |
 | `classification` | Stored class label. |
+| `catalog_version` | Campaign namespace (`v5_3`, `v6`, …). Part of the unique key, so the same item can be voted independently per campaign. |
 | `source` | Origin of the row, normally `app`. |
 
 Public writes should go through RPCs:

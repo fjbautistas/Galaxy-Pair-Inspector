@@ -1,103 +1,75 @@
--- Current Galaxy Pair Inspector Supabase schema.
--- This file describes the active app contract as a baseline schema.
+-- ════════════════════════════════════════════════════════════════════════════
+-- Migración: namespacing de votos y particiones por `catalog_version` (opción A).
 --
--- Votes and partitions are namespaced by `catalog_version`: each campaign
--- (e.g. 'v5_3', 'v6') lives in its own space, so everyone starts a new campaign
--- at the full total while the previous campaign's votes are preserved.
--- For an existing database, apply `migration_v6_catalog_version.sql` instead of
--- recreating from scratch.
+-- Objetivo: que TODOS arranquen la campaña v6 en el total completo (1500) sin
+-- perder nada. El histórico se conserva etiquetado como 'v5_3'; la campaña v6
+-- vive en su propio espacio. Un mismo par puede tener voto en v5_3 y en v6.
+--
+-- Correr UNA sola vez en el SQL Editor de Supabase (todo en una transacción).
+-- Después de correrla, regenerar y desplegar GalPairs.html (la app manda 'v6').
+-- ════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
 
-CREATE OR REPLACE FUNCTION public._is_valid_device_id(p_device_id text)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-AS $$
-  SELECT p_device_id ~ '^[A-Z0-9_]{3,20}$';
-$$;
+-- ── 1. clasificaciones: columna + backfill histórico + UNIQUE con versión ─────
+-- El DEFAULT 'v5_3' hace el backfill de todas las filas existentes.
+ALTER TABLE public.clasificaciones
+  ADD COLUMN IF NOT EXISTS catalog_version text NOT NULL DEFAULT 'v5_3';
 
-CREATE OR REPLACE FUNCTION public._is_valid_classification(p_classification text)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-AS $$
-  SELECT p_classification IN ('FP', 'Pair', 'PM', 'GROUP', 'PP');
-$$;
+-- La UNIQUE pasa a incluir la versión: mismo (device,item) en distintos catálogos
+-- son filas independientes → no se pisan, no se borra el histórico.
+-- Elimina cualquier UNIQUE previa de la tabla (sin asumir su nombre autogenerado).
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT con.conname
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+     WHERE nsp.nspname = 'public'
+       AND rel.relname = 'clasificaciones'
+       AND con.contype = 'u'
+  LOOP
+    EXECUTE format('ALTER TABLE public.clasificaciones DROP CONSTRAINT %I', r.conname);
+  END LOOP;
+END $$;
 
-CREATE OR REPLACE FUNCTION public._is_valid_item_type(p_item_type text)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-AS $$
-  SELECT p_item_type IN ('pair', 'group');
-$$;
+ALTER TABLE public.clasificaciones
+  ADD CONSTRAINT clasificaciones_device_item_version_key
+  UNIQUE (device_id, item_type, item_uid, catalog_version);
 
-CREATE TABLE IF NOT EXISTS public.clasificaciones (
-  id               bigserial PRIMARY KEY,
-  device_id        text        NOT NULL,
-  item_type        text        NOT NULL CHECK (item_type IN ('pair', 'group')),
-  item_uid         text        NOT NULL,
-  pair_uid         text,
-  stable_system_id text,
-  id_par_v5        integer,
-  classification   text        NOT NULL CHECK (classification IN ('FP', 'Pair', 'PM', 'GROUP', 'PP')),
-  catalog_version  text        NOT NULL DEFAULT 'v5_3',
-  source           text        NOT NULL DEFAULT 'app',
-  exported_at      timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT clasificaciones_device_item_version_key
-    UNIQUE (device_id, item_type, item_uid, catalog_version)
-);
+-- ── 2. partitions: columna + PK compuesta (device_id, catalog_version) ────────
+-- Cada device re-dibuja partición fresca por versión; el empaquetado de bloques
+-- solo mira la versión actual (no cuenta particiones viejas de v5_3).
+ALTER TABLE public.partitions
+  ADD COLUMN IF NOT EXISTS catalog_version text NOT NULL DEFAULT 'v5_3';
 
-CREATE INDEX IF NOT EXISTS clasificaciones_item_uid_idx
-  ON public.clasificaciones(item_type, item_uid);
+-- Elimina TODAS las constraints PK/UNIQUE de la tabla (sin asumir sus nombres): así
+-- se quita la unicidad vieja sobre device_id solo. Evita "multiple primary keys".
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT con.conname
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+     WHERE nsp.nspname = 'public'
+       AND rel.relname = 'partitions'
+       AND con.contype IN ('p', 'u')
+  LOOP
+    EXECUTE format('ALTER TABLE public.partitions DROP CONSTRAINT %I', r.conname);
+  END LOOP;
+END $$;
 
-CREATE INDEX IF NOT EXISTS clasificaciones_pair_uid_idx
-  ON public.clasificaciones(pair_uid)
-  WHERE pair_uid IS NOT NULL;
+-- Nombre NUEVO para la PK compuesta: el nombre 'partitions_pkey' ya lo ocupa la PK
+-- de otra tabla (partitions_v3_archive) y los nombres de índice son únicos por schema.
+ALTER TABLE public.partitions
+  ADD CONSTRAINT partitions_device_version_pkey PRIMARY KEY (device_id, catalog_version);
 
-CREATE INDEX IF NOT EXISTS clasificaciones_device_idx
-  ON public.clasificaciones(device_id);
-
-CREATE TABLE IF NOT EXISTS public.partitions (
-  device_id        text NOT NULL,
-  catalog_version  text NOT NULL DEFAULT 'v5_3',
-  calib_seed       integer NOT NULL,
-  work_start       integer NOT NULL,
-  work_end         integer NOT NULL,
-  group_work_start integer,
-  group_work_end   integer,
-  registered_at    timestamptz NOT NULL DEFAULT now(),
-  calib_v          integer NOT NULL DEFAULT 2,
-  work_start_v2    integer,
-  work_end_v2      integer,
-  n_v1             integer,
-  n_v2             integer,
-  n_groups         integer,
-  CONSTRAINT partitions_device_version_pkey PRIMARY KEY (device_id, catalog_version)
-);
-
-ALTER TABLE public.clasificaciones ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.partitions ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS classifications_public_read ON public.clasificaciones;
-DROP POLICY IF EXISTS partitions_public_read ON public.partitions;
-
-CREATE POLICY classifications_public_read
-  ON public.clasificaciones
-  FOR SELECT
-  USING (true);
-
-CREATE POLICY partitions_public_read
-  ON public.partitions
-  FOR SELECT
-  USING (true);
-
-GRANT USAGE ON SCHEMA public TO anon;
-GRANT SELECT ON public.clasificaciones TO anon;
-GRANT SELECT ON public.partitions TO anon;
-GRANT USAGE, SELECT ON SEQUENCE public.clasificaciones_id_seq TO anon;
+-- ── 3. get_device_classifications: filtra por versión ────────────────────────
+DROP FUNCTION IF EXISTS public.get_device_classifications(text);
 
 CREATE OR REPLACE FUNCTION public.get_device_classifications(
   p_device_id       text,
@@ -129,6 +101,10 @@ BEGIN
    ORDER BY c.item_type, c.item_uid;
 END;
 $$;
+
+-- ── 4. upsert_classification: guarda con versión ─────────────────────────────
+DROP FUNCTION IF EXISTS public.upsert_classification(
+  text, text, text, text, text, text, integer, timestamptz, text);
 
 CREATE OR REPLACE FUNCTION public.upsert_classification(
   p_device_id        text,
@@ -186,6 +162,7 @@ BEGIN
 END;
 $$;
 
+-- ── 5. upsert_classifications (batch): idem, lee catalog_version del JSON ─────
 CREATE OR REPLACE FUNCTION public.upsert_classifications(p_rows jsonb)
 RETURNS int
 LANGUAGE plpgsql
@@ -263,6 +240,9 @@ BEGIN
 END;
 $$;
 
+-- ── 6. delete_classification: apunta a la fila de la versión ─────────────────
+DROP FUNCTION IF EXISTS public.delete_classification(text, text, text);
+
 CREATE OR REPLACE FUNCTION public.delete_classification(
   p_device_id       text,
   p_item_type       text,
@@ -291,6 +271,10 @@ BEGIN
      AND catalog_version = p_catalog_version;
 END;
 $$;
+
+-- ── 7. assign_partition_mixed: partición y empaquetado por versión ───────────
+DROP FUNCTION IF EXISTS public.assign_partition_mixed(
+  text, int, int, int, int, int, int, int);
 
 CREATE OR REPLACE FUNCTION public.assign_partition_mixed(
   p_device_id        text,
@@ -368,6 +352,9 @@ BEGIN
 END;
 $$;
 
+-- ── 8. assign_partition (wrapper): pasa la versión ───────────────────────────
+DROP FUNCTION IF EXISTS public.assign_partition(text, int, int, int, int, int);
+
 CREATE OR REPLACE FUNCTION public.assign_partition(
   p_device_id        text,
   p_calib_seed       int,
@@ -391,11 +378,19 @@ BEGIN
 END;
 $$;
 
+-- ── 9. GRANTs para las nuevas firmas ─────────────────────────────────────────
 GRANT EXECUTE ON FUNCTION public.get_device_classifications(text, text) TO anon;
-GRANT EXECUTE ON FUNCTION public.upsert_classification(text, text, text, text, text, text, integer, text, timestamptz, text) TO anon;
+GRANT EXECUTE ON FUNCTION public.upsert_classification(
+  text, text, text, text, text, text, integer, text, timestamptz, text) TO anon;
 GRANT EXECUTE ON FUNCTION public.upsert_classifications(jsonb) TO anon;
 GRANT EXECUTE ON FUNCTION public.delete_classification(text, text, text, text) TO anon;
-GRANT EXECUTE ON FUNCTION public.assign_partition_mixed(text, int, int, int, int, int, int, int, text) TO anon;
-GRANT EXECUTE ON FUNCTION public.assign_partition(text, int, int, int, int, int, text) TO anon;
+GRANT EXECUTE ON FUNCTION public.assign_partition_mixed(
+  text, int, int, int, int, int, int, int, text) TO anon;
+GRANT EXECUTE ON FUNCTION public.assign_partition(
+  text, int, int, int, int, int, text) TO anon;
 
 COMMIT;
+
+-- ── Verificación rápida (correr aparte, opcional) ────────────────────────────
+-- SELECT catalog_version, count(*) FROM public.clasificaciones GROUP BY 1;
+-- SELECT catalog_version, count(*) FROM public.partitions      GROUP BY 1;

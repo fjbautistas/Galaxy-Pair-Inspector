@@ -39,8 +39,8 @@ RP_SPLIT = 50.0                          # frontera v1 (5–50) / v2 (50–80)
 N_CALIB = 550                            # set común (todos)
 CALIB_SINGLE_FRAC = 0.5                  # mitad single-vote, mitad nuevos
 N_USERS = 20
-BLOCK_SIZE = 900                         # por usuario
-POOL_TARGET = N_USERS * BLOCK_SIZE       # 18,000
+BLOCK_SIZE = 950                         # por usuario (550 calib + 950 = 1500 total)
+POOL_TARGET = N_USERS * BLOCK_SIZE       # 19,000
 RARE_TYPES = ["LRG-LRG", "ELG-ELG", "ELG-LRG", "BGS-LRG"]
 RARE_FLOOR_FRAC = 0.05                   # piso mínimo por tipo raro en cada bloque
 RANDOM_STATE = 42
@@ -93,8 +93,11 @@ def _pair_entries(df):
     df["ra_mid"] = (df.ra1 + df.ra2) / 2.0
     df["dec_mid"] = (df.dec1 + df.dec2) / 2.0
     out = []
-    for _, r in df.iterrows():
+    for i, (_, r) in enumerate(df.iterrows(), start=1):
         out.append({
+            # id legible y estable dentro de la campaña (el pair_uid sigue siendo la
+            # llave científica); evita el "unknown" en la UI cuando no hay id_par_v5.
+            "display_id": i,
             "pair_uid": str(r.pair_uid),
             "ra1": round(float(r.ra1), 5), "dec1": round(float(r.dec1), 5),
             "ra2": round(float(r.ra2), 5), "dec2": round(float(r.dec2), 5),

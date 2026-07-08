@@ -946,6 +946,7 @@
       stable_system_id: type === 'group' ? uid : null,
       id_par_v5: type === 'pair' ? pairDisplayId(item) : null,
       classification,
+      catalog_version: CATALOG_VERSION,
       source: 'app',
       exported_at: new Date().toISOString(),
     };
@@ -1735,7 +1736,7 @@
           'Authorization': `Bearer ${key}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ p_device_id: devId }),
+        body: JSON.stringify({ p_device_id: devId, p_catalog_version: CATALOG_VERSION }),
       });
       if (rpcResp.ok) {
         const rows = await rpcResp.json();
@@ -1752,6 +1753,7 @@
       while (true) {
         const resp = await fetch(
           `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(devId)}` +
+          `&catalog_version=eq.${encodeURIComponent(CATALOG_VERSION)}` +
           `&select=item_type,item_uid,classification&limit=${limit}&offset=${offset}`,
           {
             headers: {
@@ -1846,6 +1848,7 @@
         p_stable_system_id: row.stable_system_id,
         p_id_par_v5: row.id_par_v5,
         p_classification: row.classification,
+        p_catalog_version: row.catalog_version,
         p_source: row.source,
         p_exported_at: row.exported_at,
       }),
@@ -1870,6 +1873,7 @@
         p_device_id: deviceId,
         p_item_type: itemType(item),
         p_item_uid: itemUid(item),
+        p_catalog_version: CATALOG_VERSION,
       })
     })
     .then(() => {})
@@ -2011,8 +2015,8 @@
   const CALIB_PAIRS        = 550;   // calib común v6 (homogéneo rp∈[5,80], iguales para todos)
   const CALIB_GROUPS       = 80;    // grupos de calibración (iguales para todos)
   const CALIB_SIZE         = CALIB_PAIRS;
-  const BLOCK_SIZE         = 900;
-  const GROUP_BLOCK_SIZE   = 180;
+  const BLOCK_SIZE         = 950;   // 550 calib + 950 work = 1500 por usuario
+  const GROUP_BLOCK_SIZE   = 190;   // 1 grupo / 5 pares → 950/5
   const WORK_V1_FRACTION   = 0.58;  // homogéneo rp: v1 (5–50) / v2 (50–80)
   const GROUP_INTERLEAVE_RATIO = 5; // 1 grupo por cada 5 pares
 
@@ -2037,7 +2041,7 @@
       }
     }
 
-    const nV1 = ((window._CATALOG && window._CATALOG.n_pairs_v1) || 10515);
+    const nV1 = ((window._CATALOG && window._CATALOG.n_pairs_v1) || 10992);
     const { v1: qV1, v2: qV2 } = _workQuotas(BLOCK_SIZE);
 
     const v1Start = Math.max(CALIB_PAIRS, Math.min(partition.work_start || CALIB_PAIRS, nV1));
@@ -2085,8 +2089,9 @@
           p_calib_size:       CALIB_SIZE,
           p_group_block_size: GROUP_BLOCK_SIZE,
           p_group_calib_size: CALIB_GROUPS,
-          p_v1_max_idx:       ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 10515),
-          p_v2_max_idx:       ((window._CATALOG && window._CATALOG.total_pairs) || 17663),
+          p_v1_max_idx:       ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 10992),
+          p_v2_max_idx:       ((window._CATALOG && window._CATALOG.total_pairs) || 18526),
+          p_catalog_version:  CATALOG_VERSION,
         }),
       });
       if (r.ok) {
@@ -2108,6 +2113,7 @@
           p_calib_size:       CALIB_SIZE,
           p_group_block_size: GROUP_BLOCK_SIZE,
           p_group_calib_size: CALIB_GROUPS,
+          p_catalog_version:  CATALOG_VERSION,
         }),
       });
       if (r.ok) {
@@ -2121,7 +2127,8 @@
     // Fallback: lógica directa si la función RPC no existe todavía
     try {
       const r = await fetch(
-        `${url}/rest/v1/partitions?device_id=eq.${devId}&select=*&limit=1`,
+        `${url}/rest/v1/partitions?device_id=eq.${devId}` +
+        `&catalog_version=eq.${encodeURIComponent(CATALOG_VERSION)}&select=*&limit=1`,
         { headers }
       );
       const rows = await r.json();
@@ -2131,7 +2138,8 @@
     let maxEnd = CALIB_SIZE;
     try {
       const r = await fetch(
-        `${url}/rest/v1/partitions?select=work_end&order=work_end.desc&limit=1`,
+        `${url}/rest/v1/partitions?catalog_version=eq.${encodeURIComponent(CATALOG_VERSION)}` +
+        `&select=work_end&order=work_end.desc&limit=1`,
         { headers }
       );
       const rows = await r.json();
@@ -2139,10 +2147,11 @@
     } catch (_) {}
 
     const partition = {
-      device_id:  devId,
-      calib_seed: Math.floor(Math.random() * 1_000_000),
-      work_start: maxEnd,
-      work_end:   maxEnd + BLOCK_SIZE,
+      device_id:       devId,
+      catalog_version: CATALOG_VERSION,
+      calib_seed:      Math.floor(Math.random() * 1_000_000),
+      work_start:      maxEnd,
+      work_end:        maxEnd + BLOCK_SIZE,
     };
     try {
       const r = await fetch(`${url}/rest/v1/partitions`, {
