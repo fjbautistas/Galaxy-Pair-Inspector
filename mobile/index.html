@@ -2200,14 +2200,17 @@
       _partition  = partition;
       _seed       = seed;
 
-      // ── Calibración base (rp < 20 kpc) ───────────────────────────────
+      // ── Calibración base (primeros CALIB_PAIRS del catálogo) ─────────
       const calibBasePairs = basePairs.slice(0, CALIB_PAIRS);
+      const _calibBaseKeys = new Set(calibBasePairs.map(pairKey));
 
-      // ── Calibración suplementaria (rp ∈ [20,50) kpc) ─────────────────
-      // pair_uid set inyectado por export_standalone.py
+      // ── Calibración suplementaria (pares inyectados en _SUPP_CALIB_IDS) ─
+      // En v6 el set calib es único (550) y va TANTO en los primeros CALIB_PAIRS
+      // como en _SUPP_CALIB_IDS → se excluyen los ya contados en la base para no
+      // duplicarlos. En v5_3 (base y supp disjuntos) esto no cambia nada.
       const _suppIds = new Set(window._SUPP_CALIB_IDS || []);
       const calibSuppPairs = _suppIds.size > 0
-        ? basePairs.filter(p => _suppIds.has(pairKey(p)))
+        ? basePairs.filter(p => _suppIds.has(pairKey(p)) && !_calibBaseKeys.has(pairKey(p)))
         : [];
 
       // _calibIdSet: todos los pares de calibración (base + supp)
