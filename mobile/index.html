@@ -1463,6 +1463,9 @@
           <span style="color:#55aaff">G2 &nbsp;RA <strong>${item.ra2.toFixed(4)}</strong>
                 &nbsp;DEC <strong>${item.dec2.toFixed(4)}</strong></span>
         </div>
+        ${item.pair_type ? `<div class="info-row" style="margin-top:2px;font-size:11px">
+          <span style="color:#888">pair type: <strong style="color:#bbb">${item.pair_type}</strong></span>
+        </div>` : ''}
         <div class="info-row" style="margin-top:4px;font-size:11px">
           <span style="color:#ff7a6a">z₁=<strong style="color:#ffb3a8">${z1}</strong></span>
           <span style="color:#55aaff">z₂=<strong style="color:#a8d4ff">${z2}</strong></span>
@@ -2005,13 +2008,13 @@
   // ═══════════════════════════════════════════════════════════════════════
   // PARTITION — auto-registro y asignación de bloque desde Supabase
   // ═══════════════════════════════════════════════════════════════════════
-  const CALIB_PAIRS        = 120;   // pares de calibración base (rp<20 kpc, iguales para todos)
+  const CALIB_PAIRS        = 550;   // calib común v6 (homogéneo rp∈[5,80], iguales para todos)
   const CALIB_GROUPS       = 80;    // grupos de calibración (iguales para todos)
   const CALIB_SIZE         = CALIB_PAIRS;
-  const BLOCK_SIZE         = 1000;
-  const GROUP_BLOCK_SIZE   = 100;
-  const WORK_V1_FRACTION   = 0.50;  // 50% rp<20, 50% rp∈[20,50)
-  const GROUP_INTERLEAVE_RATIO = 10; // 1 grupo por cada 10 pares
+  const BLOCK_SIZE         = 900;
+  const GROUP_BLOCK_SIZE   = 180;
+  const WORK_V1_FRACTION   = 0.58;  // homogéneo rp: v1 (5–50) / v2 (50–80)
+  const GROUP_INTERLEAVE_RATIO = 5; // 1 grupo por cada 5 pares
 
   function _workQuotas(total = BLOCK_SIZE) {
     const v1 = Math.round(total * WORK_V1_FRACTION);
@@ -2034,7 +2037,7 @@
       }
     }
 
-    const nV1 = ((window._CATALOG && window._CATALOG.n_pairs_v1) || 31976);
+    const nV1 = ((window._CATALOG && window._CATALOG.n_pairs_v1) || 10515);
     const { v1: qV1, v2: qV2 } = _workQuotas(BLOCK_SIZE);
 
     const v1Start = Math.max(CALIB_PAIRS, Math.min(partition.work_start || CALIB_PAIRS, nV1));
@@ -2082,8 +2085,8 @@
           p_calib_size:       CALIB_SIZE,
           p_group_block_size: GROUP_BLOCK_SIZE,
           p_group_calib_size: CALIB_GROUPS,
-          p_v1_max_idx:       ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 31976),
-          p_v2_max_idx:       ((window._CATALOG && window._CATALOG.total_pairs) || 79156),
+          p_v1_max_idx:       ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 10515),
+          p_v2_max_idx:       ((window._CATALOG && window._CATALOG.total_pairs) || 17663),
         }),
       });
       if (r.ok) {
