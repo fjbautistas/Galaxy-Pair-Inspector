@@ -23,6 +23,7 @@ import sys
 import urllib.request as urlreq
 from collections import Counter
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pandas as pd
 
@@ -51,6 +52,17 @@ CALIB_GROUPS = 80
 RP_SPLIT_KPC = 20.0
 SUPP_CALIB_JSON = 'data/supplementary_calib_ids_v5_3.json'
 OUTPUT_DIR = Path('outputs/catalogs')
+
+# Tablas de votos a UNIR (histórico + campañas). La viva primero (gana en dedup).
+# Editable por env: VOTE_TABLES="clasificaciones,clasificaciones_v3_archive"
+SOURCE_TABLES = [t.strip() for t in _env.get(
+    'VOTE_TABLES', 'clasificaciones,clasificaciones_v3_archive').split(',') if t.strip()]
+# Select completo (tabla viva ya tiene catalog_version/created_at); si la tabla no
+# los tiene (archivo viejo), se reintenta con el select mínimo.
+_SELECT_FULL = ('device_id,item_type,item_uid,pair_uid,stable_system_id,'
+                'id_par_v5,classification,catalog_version,created_at')
+_SELECT_MIN = ('device_id,item_type,item_uid,pair_uid,stable_system_id,'
+               'id_par_v5,classification')
 
 
 def _load_supp_calib_ids() -> set:
@@ -133,20 +145,15 @@ def _load_group_lookup(path: str) -> dict[str, dict]:
     return lookup
 
 
-def _fetch_all_classifications() -> list[dict]:
+def _fetch_table(table: str, select: str) -> list[dict]:
+    """Descarga paginada de una tabla de votos."""
     rows = []
     limit = 1000
     offset = 0
-    select = (
-        'device_id,item_type,item_uid,pair_uid,stable_system_id,'
-        'id_par_v5,classification'
-    )
-
     while True:
         url = (
-            f'{SUPABASE_URL}/rest/v1/clasificaciones'
-            f'?select={select}'
-            f'&limit={limit}&offset={offset}'
+            f'{SUPABASE_URL}/rest/v1/{table}'
+            f'?select={select}&limit={limit}&offset={offset}'
         )
         req = urlreq.Request(url, headers={
             'apikey': ANON_KEY,
@@ -154,13 +161,61 @@ def _fetch_all_classifications() -> list[dict]:
         })
         with urlreq.urlopen(req) as resp:
             page = json.loads(resp.read())
-
         rows.extend(page)
         if len(page) < limit:
             break
         offset += limit
-
     return rows
+
+
+def _fetch_all_classifications() -> list[dict]:
+    """Une los votos de TODAS las tablas fuente (histórico + campañas).
+
+    Cada fila se marca con su tabla y un rango de preferencia (la primera tabla
+    de SOURCE_TABLES gana en el dedup). El dedup (un voto por persona×objeto) se
+    hace después, en main().
+    """
+    all_rows = []
+    n_tables = len(SOURCE_TABLES)
+    for idx, table in enumerate(SOURCE_TABLES):
+        try:
+            try:
+                rows = _fetch_table(table, _SELECT_FULL)
+            except HTTPError:
+                # Tabla sin catalog_version/created_at (archivo viejo): select mínimo.
+                rows = _fetch_table(table, _SELECT_MIN)
+        except HTTPError as exc:
+            if exc.code in (404, 400):
+                print(f'  [aviso] tabla "{table}" no disponible ({exc.code}) — se omite')
+                continue
+            raise
+        for r in rows:
+            r['_table'] = table
+            r['_rank'] = n_tables - idx           # tabla viva (idx 0) → rango más alto
+        n_v = sum(1 for r in rows if str(r.get('catalog_version') or '') == 'v6')
+        print(f'  {table}: {len(rows):,} votos' + (f'  (v6: {n_v:,})' if n_v else ''))
+        all_rows.extend(rows)
+    return all_rows
+
+
+def _dedup_votes(rows: list[dict]) -> list[dict]:
+    """Un voto por (device_id, item_type, item_uid), colapsando versiones y tablas.
+
+    Si la misma persona votó el mismo objeto en v5_3 y v6 (o en viva y archivo),
+    gana el más reciente (created_at desc; desempate: tabla de mayor rango).
+    Votos de personas distintas se conservan todos → suman al consenso.
+    """
+    if not rows:
+        return rows
+    df = pd.DataFrame(rows)
+    if 'created_at' not in df.columns:
+        df['created_at'] = None
+    df['_ca'] = pd.to_datetime(df['created_at'], errors='coerce', utc=True)
+    df = df.sort_values(['_ca', '_rank'], ascending=[False, False], na_position='last')
+    before = len(df)
+    df = df.drop_duplicates(subset=['device_id', 'item_type', 'item_uid'], keep='first')
+    print(f'  dedup: {before:,} → {len(df):,} votos únicos (persona×objeto)')
+    return df.drop(columns=['_ca', '_rank', '_table'], errors='ignore').to_dict('records')
 
 
 def _majority_vote(rows: list[dict], key_field: str) -> list[dict]:
@@ -224,13 +279,16 @@ def main():
     print(f'  Pares en lookup: {len(pair_lookup):,}')
     print(f'  Grupos en lookup: {len(group_lookup):,}')
 
-    print('Descargando clasificaciones desde Supabase...')
+    print('Descargando clasificaciones desde Supabase (uniendo tablas)...')
+    print(f'  Tablas fuente: {", ".join(SOURCE_TABLES)}')
     raw = _fetch_all_classifications()
-    print(f'  {len(raw)} filas descargadas')
+    print(f'  {len(raw):,} votos crudos (antes de dedup)')
+    raw = _dedup_votes(raw)
 
     raw_pairs = [r for r in raw if r.get('item_type') == 'pair']
     raw_groups = [r for r in raw if r.get('item_type') == 'group']
-    print(f'  Pares: {len(raw_pairs)} votos  |  Grupos: {len(raw_groups)} votos')
+    print(f'  Pares: {len(raw_pairs):,} votos → {len({r.get("pair_uid") or r.get("item_uid") for r in raw_pairs}):,} pares únicos'
+          f'  |  Grupos: {len(raw_groups):,} votos')
 
     print('Aplicando mayoría de votos (pares)...')
     labeled_pairs = []

@@ -179,11 +179,19 @@ python pipeline/register_device.py --device DESKTOP
 v6 pairs (RF-applied) + groups + live labels
     -> pipeline/build_campaign_v6.py   (homogeneous (rp,z) sample + catalog + embed)
     -> mobile/GalPairs.html            (deploy to GitHub Pages)
-    -> users classify -> Supabase clasificaciones
-    -> pipeline/generate_labels.py
+    -> users classify -> Supabase clasificaciones (+ clasificaciones_v3_archive)
+    -> pipeline/generate_labels.py     (UNION of all vote tables + versions -> majority)
     -> outputs/catalogs/labels*.csv
-    -> Dawid-Skene normalization + master + RF eval (analysis)
+    -> pipeline/build_master_table.py --corrections exports/label_corrections.csv
+    -> master_features_*.parquet -> RF (analysis)
 ```
+
+Two separate steps, keyed by `pair_uid`:
+- `generate_labels.py` = majority vote from Supabase. It **never** touches
+  `exports/label_corrections.csv`; re-running it only rebuilds `labels.csv`.
+- `build_master_table.py` applies `label_corrections.csv` as an **overlay that
+  overwrites the majority label** for those `pair_uid`s — a manual correction
+  always wins. To let a pair follow the majority again, remove it from that CSV.
 
 Local desktop progress is also stored in `outputs/catalogs/progress*.json`, and
 desktop image exports are written under `outputs/`.
