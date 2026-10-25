@@ -7,18 +7,27 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="GalPairs">
   <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://www.legacysurvey.org">
+  <link rel="preconnect" href="https://bacitxkccovwvrnfiyjq.supabase.co" crossorigin>
   <title>Galaxy Pair Inspector</title>
   <style>
+    /* Tema oscuro sobrio (SOCHIAS 2026). El tema anterior está en el historial de git. */
     :root {
-      --bg:          #1a1a1a;
-      --card:        #242424;
-      --border:      #363636;
-      --text:        #e0e0e0;
-      --muted:       #888;
-      --fp-bg:       #5a1010;  --fp-border:   #e53935;
-      --pair-bg:     #0f4020;  --pair-border: #43a047;
-      --pm-bg:       #4a3000;  --pm-border:   #fb8c00;
-      --group-bg:    #0a2040;  --group-border: #4488cc;
+      --bg:          #0B0F17;
+      --card:        #141A24;
+      --border:      #2A3240;
+      --text:        #E6E9EF;
+      --muted:       #9AA3B2;
+      --faint:       #5B6475;
+      --img-bg:      #05080D;
+      --blue:        #4292C6;   /* enlaces, progreso, selección */
+      --purple:      #9E9AC8;   /* acento secundario */
+      --pair-fill:   #08519C;
+      --fp-fill:     #54278F;
+      --serif:       "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      --sans:        -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif;
+      --mono:        ui-monospace, "SF Mono", Menlo, monospace;
+      --radius:      3px;
       --safe-top:    env(safe-area-inset-top,    0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
@@ -31,7 +40,7 @@
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      font-family: var(--sans);
       height: 100dvh;
       display: flex;
       flex-direction: column;
@@ -39,48 +48,54 @@
       padding-top: var(--safe-top);
       padding-bottom: var(--safe-bottom);
     }
+    a { color: var(--blue); }
 
     /* ── HEADER ──────────────────────────────── */
     header {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
-      background: #202020;
+      padding: 10px 12px;
+      background: var(--bg);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
     .hdr-title {
-      font-size: 16px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
+      font-family: var(--serif);
+      font-size: 19px;
+      font-weight: 600;
       white-space: nowrap;
     }
     .hdr-counter {
       flex: 1;
       text-align: center;
-      font-size: clamp(11px, 3.2vw, 14px);
+      font-family: var(--mono);
+      font-size: clamp(10px, 3vw, 12px);
       color: var(--muted);
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
       min-width: 0;
     }
     .hdr-btn {
-      background: #333;
-      border: 1px solid #454545;
-      color: var(--text);
-      padding: 7px 13px;
-      border-radius: 8px;
-      font-size: 14px;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 34px; height: 32px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0 9px;
+      border-radius: var(--radius);
+      font-family: var(--serif);
+      font-size: 15px;
       cursor: pointer;
       flex-shrink: 0;
     }
+    .hdr-btn svg { width: 16px; height: 16px; }
 
     /* ── PROGRESS BAR ────────────────────────── */
-    .prog-wrap { height: 3px; background: #2a2a2a; flex-shrink: 0; }
+    .prog-wrap { height: 2px; background: var(--border); flex-shrink: 0; }
     .prog-fill  {
       height: 100%;
-      background: linear-gradient(90deg, #4caf50, #66bb6a);
+      background: var(--blue);
       transition: width 0.4s ease;
       width: 0%;
     }
@@ -92,24 +107,29 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 12px 16px 6px;
+      padding: 10px 12px 4px;
       min-height: 0;
+    }
+    .img-wrapper, .pair-header, .pair-info {
+      width: min(94vw, 520px, calc(100dvh - 370px));
+      min-width: min(94vw, 260px);
     }
     .img-wrapper {
       position: relative;
-      width: min(90vw, 420px);
       aspect-ratio: 1;
-      border-radius: 12px;
+      border-radius: var(--radius);
       overflow: hidden;
-      background: #111;
+      background: var(--img-bg);
       cursor: pointer;
-      transition: box-shadow 0.2s;
       flex-shrink: 0;
+      outline: 2px solid transparent;
+      outline-offset: 3px;
+      transition: outline-color 0.15s;
     }
-    .img-wrapper.cl-fp    { box-shadow: 0 0 0 3px var(--fp-border); }
-    .img-wrapper.cl-pair  { box-shadow: 0 0 0 3px var(--pair-border); }
-    .img-wrapper.cl-pm    { box-shadow: 0 0 0 3px var(--pm-border); }
-    .img-wrapper.cl-group { box-shadow: 0 0 0 3px var(--group-border); }
+    .img-wrapper.cl-fp    { outline-color: var(--purple); }
+    .img-wrapper.cl-pair  { outline-color: var(--blue); }
+    .img-wrapper.cl-pm    { outline-color: var(--muted); }
+    .img-wrapper.cl-group { outline-color: var(--blue); }
 
     #galaxyImg {
       width: 100%; height: 100%;
@@ -124,12 +144,13 @@
     .spinner-overlay {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      background: #111;
+      flex-direction: column;
+      background: var(--img-bg);
     }
     .spinner {
-      width: 38px; height: 38px;
-      border: 3px solid #2a2a2a;
-      border-top-color: #666;
+      width: 30px; height: 30px;
+      border: 2px solid var(--border);
+      border-top-color: var(--muted);
       border-radius: 50%;
       animation: spin 0.9s linear infinite;
     }
@@ -138,173 +159,182 @@
     .err-state {
       display: flex; flex-direction: column;
       align-items: center; gap: 8px;
-      color: #888; font-size: 13px; text-align: center; padding: 20px;
+      color: var(--muted); font-size: 13px; text-align: center; padding: 20px;
     }
-    .err-state .err-icon { font-size: 30px; }
     .retry-btn {
-      margin-top: 6px; padding: 8px 18px;
-      background: #2e2e2e; border: 1px solid #555;
-      color: #aaa; border-radius: 8px; font-size: 13px; cursor: pointer;
+      margin-top: 6px; padding: 8px 16px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius);
+      font-family: var(--serif); font-size: 14px; cursor: pointer;
     }
 
-    /* ── PAIR HEADER (encima de la imagen) ──── */
+    /* ── DATOS (encima y debajo de la imagen) ── */
     .pair-header {
-      width: min(90vw, 420px);
       margin-bottom: 6px;
-      font-size: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
       color: var(--muted);
       line-height: 1.5;
     }
-
-    /* ── PAIR INFO (debajo de la imagen) ─────── */
     .pair-info {
-      width: min(90vw, 420px);
-      margin-top: 6px;
-      font-size: 12px;
+      margin-top: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
       color: var(--muted);
-      line-height: 1.55;
+      line-height: 1.6;
     }
     .info-row { display: flex; justify-content: space-between; gap: 8px; }
-    .pair-info strong { color: #c0c0c0; }
+    .pair-header strong, .pair-info strong { color: var(--text); font-weight: 500; }
     .cl-badge {
       margin-top: 4px;
-      font-size: 11px;
-      font-weight: 600;
+      font-family: var(--serif);
+      font-size: 13px;
     }
 
     /* ── CLASSIFICATION BUTTONS ──────────────── */
-    .cl-section { padding: 6px 14px 5px; flex-shrink: 0; }
+    .cl-section { padding: 8px 12px 6px; flex-shrink: 0; }
     .cl-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
-      gap: 9px;
+      gap: 8px;
     }
     .btn-cl {
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      padding: 11px 4px;
-      border: 2px solid #424242;
-      border-radius: 13px;
-      background: #272727;
-      color: #aaa;
-      font-size: 12px; font-weight: 600;
+      padding: 9px 4px;
+      border: 1px solid var(--muted);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text);
+      font-family: var(--serif);
+      font-size: 16px; font-weight: 500;
       cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-      gap: 3px; min-height: 66px;
+      gap: 2px; min-height: 54px;
       user-select: none;
+      outline: 2px solid transparent;
+      outline-offset: 2px;
     }
-    .btn-cl .ic   { font-size: 20px; line-height: 1; }
-    .btn-cl .lbl  { font-size: 10px; color: #666; font-weight: 400; }
-    .btn-cl.a-fp    { background: var(--fp-bg);    border-color: var(--fp-border);    color: #fff; }
-    .btn-cl.a-fp    .lbl { color: #ffaaaa; }
-    .btn-cl.a-pair  { background: var(--pair-bg);  border-color: var(--pair-border);  color: #fff; }
-    .btn-cl.a-pair  .lbl { color: #aaffaa; }
-    .btn-cl.a-pm    { background: var(--pm-bg);    border-color: var(--pm-border);    color: #fff; }
-    .btn-cl.a-pm    .lbl { color: #ffddaa; }
-    .btn-cl.a-group { background: var(--group-bg); border-color: var(--group-border); color: #fff; }
-    .btn-cl.a-group .lbl { color: #aaccff; }
+    .btn-cl .lbl  { font-family: var(--mono); font-size: 10px; color: var(--muted); font-weight: 400; }
+    /* Identidad fija de cada botón: Pair/Group azul, NonPair/NonGroup morado, Merger/PP solo borde */
+    #btnPair { background: var(--pair-fill); border-color: var(--pair-fill); color: #fff; }
+    #btnFP   { background: var(--fp-fill);   border-color: var(--fp-fill);   color: #fff; }
+    #btnPair .lbl, #btnFP .lbl { color: rgba(255,255,255,0.7); }
+    /* Seleccionado: contorno claro alrededor del botón */
+    .btn-cl.a-fp, .btn-cl.a-pair, .btn-cl.a-pm, .btn-cl.a-group { outline-color: var(--text); }
 
     /* ── NAVIGATION ──────────────────────────── */
-    .nav-section { padding: 4px 14px 8px; flex-shrink: 0; }
+    .nav-section { padding: 2px 12px 8px; flex-shrink: 0; }
     .nav-grid {
       display: grid; grid-template-columns: 1fr 1fr;
-      gap: 9px; margin-bottom: 8px;
+      gap: 8px; margin-bottom: 2px;
     }
     .btn-nav {
-      padding: 12px;
-      border: 1px solid #3a3a3a;
-      border-radius: 11px;
-      background: #232323;
-      color: #aaa; font-size: 15px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text);
+      font-family: var(--serif); font-size: 15px;
       cursor: pointer; user-select: none;
     }
     .btn-skip {
-      width: 100%; padding: 10px;
-      border: 1px solid #303050;
-      border-radius: 11px;
-      background: #1e2030;
-      color: #88aadd; font-size: 13px;
+      width: 100%; padding: 9px;
+      border: none; background: transparent;
+      color: var(--blue);
+      font-family: var(--serif); font-size: 15px;
       cursor: pointer; text-align: center;
     }
 
     /* ── MODALS (bottom sheet) ───────────────── */
     .modal-back {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.72);
+      background: rgba(5, 8, 13, 0.8);
       display: flex; align-items: flex-end;
       z-index: 100;
       padding-bottom: var(--safe-bottom);
     }
     .modal-back.hidden { display: none; }
     .modal-sheet {
-      width: 100%; background: #222;
-      border-radius: 18px 18px 0 0;
-      padding: 20px 20px 24px;
-      border-top: 1px solid #333;
+      width: 100%; background: var(--card);
+      border-radius: 4px 4px 0 0;
+      padding: 22px 18px 22px;
+      border-top: 1px solid var(--border);
     }
-    .modal-handle {
-      width: 38px; height: 4px; background: #444;
-      border-radius: 2px; margin: 0 auto 18px;
+    .modal-handle { display: none; }
+    .modal-title {
+      font-family: var(--serif);
+      font-size: 21px; font-weight: 600; margin-bottom: 14px;
     }
-    .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
-    .completion-sheet {
-      padding-top: 14px;
-      text-align: center;
-    }
+    .completion-sheet { text-align: center; }
     .completion-art {
       width: 100%;
       max-height: 42vh;
       object-fit: cover;
-      border-radius: 14px;
-      border: 1px solid #3a3a4a;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
       margin-bottom: 6px;
-      background: #111;
+      background: var(--img-bg);
     }
     .completion-credit {
-      color: #777;
+      color: var(--faint);
       font-size: 11px;
       margin-bottom: 14px;
     }
     .completion-title {
-      font-size: 22px;
-      font-weight: 800;
+      font-family: var(--serif);
+      font-size: 24px;
+      font-weight: 600;
       margin-bottom: 8px;
     }
     .completion-copy {
-      color: #c8c8d2;
+      color: #C5CBD6;
       font-size: 14px;
-      line-height: 1.55;
+      line-height: 1.6;
       margin-bottom: 16px;
+    }
+    .ms-icon { color: var(--blue); width: 52px; height: 52px; margin: 0 auto 10px; }
+    .ms-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor;
+                   stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+    .milestone-num {
+      font-family: var(--serif);
+      font-size: 56px; font-weight: 600;
+      color: var(--blue);
+      line-height: 1.1;
+      margin: 4px 0 6px;
+      font-variant-numeric: lining-nums;
     }
 
     .stats-grid {
       display: grid; grid-template-columns: 1fr 1fr;
-      gap: 10px; margin-bottom: 14px;
+      gap: 8px; margin-bottom: 14px;
     }
     .stat-card {
-      background: #2a2a2a; border-radius: 11px;
-      padding: 14px 6px; text-align: center;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 6px; text-align: center;
     }
-    .stat-num  { font-size: 26px; font-weight: 700; }
-    .stat-lbl  { font-size: 11px; color: #777; margin-top: 2px; }
-    .c-fp    .stat-num { color: #e57373; }
-    .c-pair  .stat-num { color: #66bb6a; }
-    .c-pm    .stat-num { color: #ffa726; }
-    .c-group .stat-num { color: #64b5f6; }
+    .stat-num  { font-family: var(--serif); font-size: 28px; font-weight: 600; }
+    .stat-lbl  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .c-fp    .stat-num { color: var(--purple); }
+    .c-pair  .stat-num { color: var(--blue); }
+    .c-pm    .stat-num { color: var(--text); }
+    .c-group .stat-num { color: var(--blue); }
 
     .mbtn {
-      width: 100%; padding: 14px;
-      border-radius: 13px; border: none;
-      font-size: 15px; font-weight: 600;
+      width: 100%; padding: 13px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      font-family: var(--serif);
+      font-size: 16px; font-weight: 500;
       cursor: pointer; margin-top: 8px;
     }
-    .mbtn-primary   { background: #2a4a80; color: #fff; }
-    .mbtn-secondary { background: #2a2a2a; color: #aaa; }
+    .mbtn-primary   { background: var(--pair-fill); color: #fff; }
+    .mbtn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
 
     /* ── TUTORIAL ───────────────────────────── */
     #tutorialOverlay {
       position: fixed; inset: 0; z-index: 200;
-      background: #111;
+      background: var(--bg);
       display: flex; flex-direction: column;
       padding-top: var(--safe-top);
       padding-bottom: var(--safe-bottom);
@@ -315,9 +345,10 @@
       padding: 14px 18px 8px;
       flex-shrink: 0;
     }
-    .tut-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .tut-title { font-family: var(--serif); font-size: 20px; font-weight: 600; }
     .tut-skip  {
-      font-size: 13px; color: #666; background: none; border: none;
+      font-family: var(--serif);
+      font-size: 15px; color: var(--muted); background: none; border: none;
       cursor: pointer; padding: 4px 8px;
     }
     .tut-slides {
@@ -330,38 +361,60 @@
       min-width: 100%; scroll-snap-align: start;
       display: flex; flex-direction: column; align-items: center;
       padding: 10px 24px 0;
+      overflow-y: auto;
     }
     .tut-svg-wrap {
       width: min(72vw, 280px); aspect-ratio: 1;
-      background: #1a1a1a; border-radius: 16px;
-      border: 1px solid #333;
+      background: var(--img-bg); border-radius: var(--radius);
+      border: 1px solid var(--border);
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0; overflow: hidden;
     }
+    .tut-svg-wrap svg { width: 100%; height: 100%; }
+    .tut-svg-wrap svg .iso  { fill: none; stroke: #E6E9EF; stroke-width: .8; }
+    .tut-svg-wrap svg .lead { stroke-width: .7; }
+    .tut-svg-wrap svg .t    { font-family: var(--mono); font-size: 9px; font-weight: bold; }
+    .tut-svg-wrap svg .note { font-family: var(--mono); font-size: 7.5px; fill: #9AA3B2; }
+    .tut-examples {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      width: min(100%, 330px); flex-shrink: 0;
+    }
+    .tut-examples figure { margin: 0; }
+    .tut-examples img {
+      width: 100%; aspect-ratio: 1; display: block;
+      border: 1px solid var(--border); border-radius: var(--radius);
+    }
+    .tut-examples figcaption {
+      font-family: var(--serif); font-size: 12px; color: var(--muted);
+      text-align: center; margin-top: 3px; white-space: nowrap;
+    }
     .tut-label {
-      margin-top: 16px; font-size: 20px; font-weight: 800;
-      letter-spacing: -0.4px;
+      margin-top: 18px;
+      font-family: var(--serif);
+      font-size: 22px; font-weight: 600;
     }
     .tut-desc {
       margin-top: 8px; font-size: 14px; line-height: 1.6;
-      color: #aaa; text-align: center; max-width: 320px;
+      color: var(--muted); text-align: center; max-width: 330px;
     }
+    .tut-desc strong { color: var(--text); }
     .tut-dots {
-      display: flex; gap: 7px; justify-content: center;
+      display: flex; gap: 6px; justify-content: center;
       padding: 12px 0 8px; flex-shrink: 0;
     }
     .tut-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: #444; transition: background .25s;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--border); transition: background .25s;
     }
-    .tut-dot.active { background: #eee; }
+    .tut-dot.active { background: var(--text); }
     .tut-footer {
-      padding: 0 20px 16px; flex-shrink: 0;
+      padding: 0 18px 16px; flex-shrink: 0;
     }
     .tut-btn {
-      width: 100%; padding: 15px; border-radius: 14px; border: none;
-      font-size: 16px; font-weight: 700; cursor: pointer;
-      background: #2a4a80; color: #fff;
+      width: 100%; padding: 14px; border-radius: var(--radius); border: none;
+      font-family: var(--serif);
+      font-size: 17px; font-weight: 500; cursor: pointer;
+      background: var(--pair-fill); color: #fff;
     }
 
     /* ── NO CATALOG SCREEN ───────────────────── */
@@ -370,14 +423,14 @@
       flex-direction: column; align-items: center; justify-content: center;
       padding: 32px 28px; text-align: center; color: var(--muted);
     }
-    #noCatalog h2 { color: var(--text); margin: 12px 0 8px; font-size: 20px; }
+    #noCatalog h2 { font-family: var(--serif); color: var(--text); margin: 12px 0 8px; font-size: 21px; font-weight: 600; }
     #noCatalog p  { font-size: 14px; line-height: 1.6; }
     .code-blk {
       width: 100%; margin: 12px 0;
-      background: #111; border: 1px solid #333; border-radius: 9px;
+      background: var(--img-bg); border: 1px solid var(--border); border-radius: var(--radius);
       padding: 12px 14px;
-      font-family: 'SF Mono', Menlo, monospace;
-      font-size: 12px; color: #7ec8e3;
+      font-family: var(--mono);
+      font-size: 12px; color: var(--blue);
       text-align: left;
     }
   </style>
@@ -386,13 +439,13 @@
 
   <!-- HEADER -->
   <header>
-    <div class="hdr-title">🌌 GalPairs</div>
+    <div class="hdr-title">GalPairs</div>
     <div class="hdr-counter" id="ctrText">Item — / —</div>
     <span id="syncDot" title="Cloud sync status"
-          style="width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin:0 4px;flex-shrink:0"></span>
+          style="width:7px;height:7px;border-radius:50%;background:var(--border);display:inline-block;margin:0 4px;flex-shrink:0"></span>
     <button class="hdr-btn" onclick="openTutorial()" title="Tutorial">?</button>
-    <button class="hdr-btn" onclick="openModal('stats')" title="Estadísticas">📊</button>
-    <button class="hdr-btn" onclick="openModal('export')" title="Export">⬆︎</button>
+    <button class="hdr-btn" onclick="openModal('stats')" title="Progress" aria-label="Progress"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 13.5h11M4.5 11V7.5M8 11V4M11.5 11V9"/></svg></button>
+    <button class="hdr-btn" onclick="openModal('export')" title="Export" aria-label="Export"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 10.5V2.5M5 5.5l3-3 3 3M3 9.5v4h10v-4"/></svg></button>
   </header>
 
   <!-- PROGRESS BAR -->
@@ -418,17 +471,14 @@
     <div class="cl-section">
       <div class="cl-grid">
         <button class="btn-cl" id="btnFP" onclick="classify('FP')">
-          <span class="ic">❌</span>
           <span>NonPair</span>
           <span class="lbl">NP</span>
         </button>
         <button class="btn-cl" id="btnPair" onclick="classify('Pair')">
-          <span class="ic">✅</span>
           <span>Pair</span>
           <span class="lbl">P</span>
         </button>
         <button class="btn-cl" id="btnPM" onclick="classify('PM')">
-          <span class="ic">🌀</span>
           <span>Merger</span>
           <span class="lbl">PM</span>
         </button>
@@ -442,7 +492,7 @@
         <button class="btn-nav" onclick="navigate(1)">Next →</button>
       </div>
       <button class="btn-skip" onclick="skipToUnclassified()">
-        ⏭&nbsp; Skip to next unclassified
+        Skip to next unclassified →
       </button>
     </div>
 
@@ -451,7 +501,7 @@
   <!-- TUTORIAL OVERLAY -->
   <div id="tutorialOverlay" style="display:none">
     <div class="tut-header">
-      <div class="tut-title">🌌 How to classify</div>
+      <div class="tut-title">How to classify</div>
       <button class="tut-skip" onclick="closeTutorial()">Skip</button>
     </div>
 
@@ -460,295 +510,84 @@
       <!-- Slide 0: Intro -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <!-- stars background -->
-            <circle cx="20" cy="15" r="0.8" fill="#fff" opacity=".5"/>
-            <circle cx="55" cy="30" r="0.6" fill="#fff" opacity=".4"/>
-            <circle cx="90" cy="10" r="1"   fill="#fff" opacity=".6"/>
-            <circle cx="140" cy="25" r="0.7" fill="#fff" opacity=".5"/>
-            <circle cx="170" cy="12" r="0.9" fill="#fff" opacity=".4"/>
-            <circle cx="30" cy="80" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="160" cy="70" r="0.8" fill="#fff" opacity=".4"/>
-            <circle cx="180" cy="150" r="0.7" fill="#fff" opacity=".5"/>
-            <circle cx="10" cy="160" r="0.9" fill="#fff" opacity=".3"/>
-            <circle cx="75" cy="180" r="0.6" fill="#fff" opacity=".4"/>
-            <circle cx="130" cy="190" r="0.8" fill="#fff" opacity=".5"/>
-            <!-- two galaxies approaching -->
-            <ellipse cx="80" cy="100" rx="22" ry="13" fill="#f4c97a" opacity=".9" transform="rotate(-20,80,100)"/>
-            <ellipse cx="120" cy="100" rx="18" ry="11" fill="#a8c4f0" opacity=".9" transform="rotate(15,120,100)"/>
-            <!-- tidal bridge hint -->
-            <path d="M100 97 Q108 93 103 100" stroke="#f4c97a" stroke-width="1.5" fill="none" opacity=".4"/>
-            <!-- labels -->
-            <text x="80" y="86" text-anchor="middle" font-size="10" fill="#f4c97a" font-family="monospace">G1</text>
-            <text x="120" y="86" text-anchor="middle" font-size="10" fill="#a8c4f0" font-family="monospace">G2</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><g transform="rotate(-22 82 104)"><ellipse class="iso" cx="82" cy="104" rx="26.0" ry="15.0" opacity="0.22"/><ellipse class="iso" cx="82" cy="104" rx="19.5" ry="11.2" opacity="0.45"/><ellipse class="iso" cx="82" cy="104" rx="13.0" ry="7.5" opacity="0.67"/><ellipse class="iso" cx="82" cy="104" rx="6.5" ry="3.8" opacity="0.90"/></g><g transform="rotate(16 124 98)"><ellipse class="iso" cx="124" cy="98" rx="21.0" ry="12.5" opacity="0.22"/><ellipse class="iso" cx="124" cy="98" rx="15.8" ry="9.4" opacity="0.45"/><ellipse class="iso" cx="124" cy="98" rx="10.5" ry="6.2" opacity="0.67"/><ellipse class="iso" cx="124" cy="98" rx="5.2" ry="3.1" opacity="0.90"/></g><line class="lead" x1="82" y1="104" x2="66" y2="80" stroke="rgb(255,100,80)"/><text class="t" x="63" y="83" text-anchor="end" fill="rgb(255,100,80)">G1</text><line class="lead" x1="124" y1="98" x2="140" y2="74" stroke="rgb(80,190,255)"/><text class="t" x="143" y="77" text-anchor="start" fill="rgb(80,190,255)">G2</text></svg>
         </div>
-        <div class="tut-label" style="color:#e0e0e0">Galaxy Pair Inspector</div>
+        <div class="tut-label">Galaxy Pair Inspector</div>
         <div class="tut-desc">You will see cutout images from the DESI Legacy Survey. Your task is to classify each object into one of 5 categories.<br><br>Swipe to learn each one →</div>
       </div>
 
       <!-- Slide 1: Pair -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <circle cx="30" cy="20" r="0.7" fill="#fff" opacity=".4"/>
-            <circle cx="170" cy="30" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="15" cy="150" r="0.8" fill="#fff" opacity=".4"/>
-            <circle cx="185" cy="160" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- galaxy 1 — warm ellipse -->
-            <ellipse cx="82" cy="102" rx="24" ry="14" fill="#f4c97a" opacity=".95" transform="rotate(-25,82,102)"/>
-            <ellipse cx="82" cy="102" rx="12" ry="7"  fill="#fff8e1" opacity=".7"  transform="rotate(-25,82,102)"/>
-            <!-- galaxy 2 — blue ellipse -->
-            <ellipse cx="122" cy="98" rx="19" ry="12" fill="#90b4f0" opacity=".9" transform="rotate(20,122,98)"/>
-            <ellipse cx="122" cy="98" rx="9"  ry="6"  fill="#ddeeff" opacity=".6" transform="rotate(20,122,98)"/>
-            <!-- subtle tidal arm -->
-            <path d="M103 100 Q112 88 118 93" stroke="#f4c97a" stroke-width="1.8" fill="none" opacity=".5" stroke-linecap="round"/>
-            <!-- separation arrow -->
-            <line x1="82" y1="120" x2="122" y2="120" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>
-            <text x="102" y="133" text-anchor="middle" font-size="9" fill="#777" font-family="monospace">~8 kpc</text>
-            <!-- leader lines + labels -->
-            <line x1="82" y1="91" x2="72" y2="76" stroke="#f4c97a" stroke-width="1" opacity=".8"/>
-            <line x1="122" y1="89" x2="132" y2="74" stroke="#90b4f0" stroke-width="1" opacity=".8"/>
-            <text x="68" y="74" text-anchor="middle" font-size="11" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="136" y="72" text-anchor="start" font-size="11" fill="#90b4f0" font-family="monospace" font-weight="bold">G2</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><g transform="rotate(-25 78 104)"><ellipse class="iso" cx="78" cy="104" rx="30.0" ry="17.0" opacity="0.22"/><ellipse class="iso" cx="78" cy="104" rx="22.5" ry="12.8" opacity="0.45"/><ellipse class="iso" cx="78" cy="104" rx="15.0" ry="8.5" opacity="0.67"/><ellipse class="iso" cx="78" cy="104" rx="7.5" ry="4.2" opacity="0.90"/></g><g transform="rotate(18 126 96)"><ellipse class="iso" cx="126" cy="96" rx="24.0" ry="14.0" opacity="0.22"/><ellipse class="iso" cx="126" cy="96" rx="18.0" ry="10.5" opacity="0.45"/><ellipse class="iso" cx="126" cy="96" rx="12.0" ry="7.0" opacity="0.67"/><ellipse class="iso" cx="126" cy="96" rx="6.0" ry="3.5" opacity="0.90"/></g><path class="iso" d="M100 92 C106 84 112 82 118 84" opacity=".35" stroke-dasharray="2 2"/><line class="lead" x1="78" y1="104" x2="62" y2="80" stroke="rgb(255,100,80)"/><text class="t" x="59" y="83" text-anchor="end" fill="rgb(255,100,80)">G1</text><line class="lead" x1="126" y1="96" x2="142" y2="72" stroke="rgb(80,190,255)"/><text class="t" x="145" y="75" text-anchor="start" fill="rgb(80,190,255)">G2</text><line x1="150" y1="180" x2="182" y2="180" stroke="#9AA3B2" stroke-width=".8"/><text class="note" x="166" y="174" text-anchor="middle">10 kpc</text></svg>
         </div>
-        <div class="tut-label" style="color:#43a047">✅ Confirmed Pair</div>
-        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. <strong>Both galactic centers are still clearly distinguishable as separate objects.</strong> Mark as <strong style="color:#a5d6a7">Pair</strong>.<br><br><span style="color:#aaa;font-size:12px">🎯 <strong>Classify only the marked galaxies.</strong> Other galaxies visible in the image are projections at different redshifts — already filtered out using velocity cuts (Δv) and projected distance (rp), so they are not part of this pair.</span><br><br><span style="color:#aaa;font-size:12px">⚠️ If both markers point to the same object (deblending artifact), mark it as <strong style="color:#ef9a9a">NonPair</strong>.</span></div>
+        <div class="tut-label" style="color:#4292C6">Confirmed Pair</div>
+        <div class="tut-desc">Two galaxies physically close in space (small rp, similar redshift). They may show tidal distortion or a connecting bridge. <strong>Both galactic centers are still clearly distinguishable as separate objects.</strong> Mark as <strong style="color:#4292C6">Pair</strong>.<br><br><span style="font-size:12px"><strong>Classify only the marked galaxies.</strong> Other galaxies visible in the image are projections at different redshifts — already filtered out using velocity cuts (Δv) and projected distance (rp), so they are not part of this pair.</span><br><br><span style="font-size:12px">If both markers point to the same object (deblending artifact), mark it as <strong style="color:#9E9AC8">NonPair</strong>.</span></div>
       </div>
 
       <!-- Slide 2: NonPair -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <!-- divider -->
-            <line x1="100" y1="8" x2="100" y2="192" stroke="#2a2a2a" stroke-width="1.5"/>
-            <text x="50"  y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">projection</text>
-            <text x="150" y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">deblending</text>
-
-            <!-- LEFT: projection — two galaxies different z -->
-            <circle cx="15" cy="30" r="0.6" fill="#fff" opacity=".4"/>
-            <circle cx="85" cy="170" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- foreground galaxy -->
-            <ellipse cx="45" cy="105" rx="20" ry="12" fill="#e8b86d" opacity=".9" transform="rotate(-10,45,105)"/>
-            <ellipse cx="45" cy="105" rx="9"  ry="5"  fill="#fff3cc" opacity=".7" transform="rotate(-10,45,105)"/>
-            <!-- background galaxy (small, grey) -->
-            <ellipse cx="72" cy="92"  rx="8"  ry="5"  fill="#888" opacity=".55" transform="rotate(5,72,92)"/>
-            <!-- z badges -->
-            <rect x="18" y="125" width="36" height="12" rx="2" fill="#1a1a1a" opacity=".9"/>
-            <text x="36" y="134" text-anchor="middle" font-size="8" fill="#f4c97a" font-family="monospace">z=0.05</text>
-            <rect x="55" y="107" width="36" height="12" rx="2" fill="#1a1a1a" opacity=".9"/>
-            <text x="73" y="116" text-anchor="middle" font-size="8" fill="#888" font-family="monospace">z=0.31</text>
-            <!-- leaders -->
-            <line x1="45" y1="96" x2="34" y2="78" stroke="#e8b86d" stroke-width="1" opacity=".8"/>
-            <line x1="72" y1="87" x2="77" y2="73" stroke="#888" stroke-width="1" opacity=".8"/>
-            <text x="30" y="75" text-anchor="middle" font-size="10" fill="#e8b86d" font-family="monospace" font-weight="bold">G1</text>
-            <text x="80" y="70" text-anchor="start"  font-size="10" fill="#888"    font-family="monospace" font-weight="bold">G2</text>
-
-            <!-- RIGHT: deblending — ONE galaxy, two markers -->
-            <circle cx="115" cy="40" r="0.6" fill="#fff" opacity=".4"/>
-            <circle cx="188" cy="160" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- single galaxy, slightly elongated suggesting deblend artifact -->
-            <ellipse cx="152" cy="105" rx="24" ry="14" fill="#9fc8f0" opacity=".85" transform="rotate(-8,152,105)"/>
-            <ellipse cx="152" cy="105" rx="11" ry="7"  fill="#ddeeff" opacity=".7"  transform="rotate(-8,152,105)"/>
-            <!-- subtle "split" hint: faint secondary lobe -->
-            <ellipse cx="162" cy="100" rx="8" ry="5"  fill="#b0d4f8" opacity=".35" transform="rotate(10,162,100)"/>
-            <!-- two leaders converging on same galaxy -->
-            <line x1="143" y1="96" x2="125" y2="76" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
-            <line x1="160" y1="94" x2="172" y2="74" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
-            <text x="118" y="73" text-anchor="middle" font-size="10" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="176" y="71" text-anchor="start"  font-size="10" fill="#f4c97a" font-family="monospace" font-weight="bold">G2</text>
-            <!-- converge arrow hint -->
-            <path d="M128 82 Q152 88 168 80" stroke="#e53935" stroke-width="1.2" fill="none" stroke-dasharray="3,2" opacity=".7"/>
-            <text x="152" y="140" text-anchor="middle" font-size="8" fill="#e53935" font-family="monospace" opacity=".9">same object!</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><line x1="100" y1="12" x2="100" y2="188" stroke="#2A3240" stroke-width="1"/><text class="note" x="50" y="22" text-anchor="middle">projection</text><text class="note" x="150" y="22" text-anchor="middle">deblending</text><g transform="rotate(-10 46 108)"><ellipse class="iso" cx="46" cy="108" rx="24.0" ry="14.0" opacity="0.22"/><ellipse class="iso" cx="46" cy="108" rx="16.0" ry="9.3" opacity="0.56"/><ellipse class="iso" cx="46" cy="108" rx="8.0" ry="4.7" opacity="0.90"/></g><g transform="rotate(0 76 92)"><ellipse class="iso" cx="76" cy="92" rx="6.0" ry="3.8" opacity="0.35"/><ellipse class="iso" cx="76" cy="92" rx="3.0" ry="1.9" opacity="0.60"/></g><text class="note" x="46" y="136" text-anchor="middle">z=0.05</text><text class="note" x="80" y="108" text-anchor="middle">z=0.31</text><line class="lead" x1="46" y1="108" x2="32" y2="84" stroke="rgb(255,100,80)"/><text class="t" x="29" y="87" text-anchor="end" fill="rgb(255,100,80)">G1</text><line class="lead" x1="76" y1="92" x2="86" y2="72" stroke="rgb(80,190,255)"/><text class="t" x="89" y="75" text-anchor="start" fill="rgb(80,190,255)">G2</text><g transform="rotate(-8 150 106)"><ellipse class="iso" cx="150" cy="106" rx="27.0" ry="15.0" opacity="0.22"/><ellipse class="iso" cx="150" cy="106" rx="18.0" ry="10.0" opacity="0.56"/><ellipse class="iso" cx="150" cy="106" rx="9.0" ry="5.0" opacity="0.90"/></g><line class="lead" x1="146" y1="105" x2="128" y2="80" stroke="rgb(255,100,80)"/><text class="t" x="125" y="83" text-anchor="end" fill="rgb(255,100,80)">G1</text><line class="lead" x1="155" y1="104" x2="170" y2="80" stroke="rgb(80,190,255)"/><text class="t" x="173" y="83" text-anchor="start" fill="rgb(80,190,255)">G2</text><text class="note" x="150" y="142" text-anchor="middle">one object</text></svg>
         </div>
-        <div class="tut-label" style="color:#e53935">❌ NonPair</div>
+        <div class="tut-label" style="color:#9E9AC8">NonPair</div>
         <div class="tut-desc">
           <strong>Projection:</strong> two galaxies at very different redshifts that overlap on the sky. Not a real pair.<br><br>
-          <strong>Deblending:</strong> the catalog mistakenly split one galaxy into two sources (G1 and G2 point to the same object). Both cases → <strong style="color:#ef9a9a">NonPair</strong>.
+          <strong>Deblending:</strong> the catalog mistakenly split one galaxy into two sources (G1 and G2 point to the same object). Both cases → <strong style="color:#9E9AC8">NonPair</strong>.
         </div>
       </div>
 
       <!-- Slide 3: PM -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <circle cx="25" cy="18" r="0.8" fill="#fff" opacity=".4"/>
-            <circle cx="175" cy="28" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="12" cy="170" r="0.7" fill="#fff" opacity=".4"/>
-            <circle cx="188" cy="155" r="0.8" fill="#fff" opacity=".3"/>
-            <!-- outer diffuse shared envelope — irregular -->
-            <path d="M58 90 Q52 70 66 56 Q84 42 108 46 Q132 50 144 68
-                     Q156 86 150 108 Q144 126 126 132 Q104 140 82 132
-                     Q62 124 56 106 Q54 98 58 90 Z"
-                  fill="#7a3800" opacity=".4"/>
-            <!-- tidal tail 1 — upper left -->
-            <path d="M66 76 Q44 56 36 38" stroke="#c06010" stroke-width="2.5" fill="none" opacity=".6" stroke-linecap="round"/>
-            <!-- tidal tail 2 — lower right -->
-            <path d="M136 120 Q158 140 166 158" stroke="#c06010" stroke-width="2.2" fill="none" opacity=".55" stroke-linecap="round"/>
-            <text x="30" y="35" text-anchor="middle" font-size="8" fill="#905020" font-family="monospace">tail</text>
-            <text x="168" y="163" text-anchor="start"  font-size="8" fill="#905020" font-family="monospace">tail</text>
-            <!-- nucleus 1 — distorted, elongated toward nucleus 2 -->
-            <path d="M72 88 Q76 74 88 70 Q100 66 106 76 Q110 84 104 94
-                     Q98 104 86 104 Q74 102 70 94 Q68 91 72 88 Z"
-                  fill="#e8820a" opacity=".9"/>
-            <!-- bright core 1 — off-center, pulled toward companion -->
-            <ellipse cx="92" cy="86" rx="9" ry="6" fill="#ffc050" opacity=".85" transform="rotate(20,92,86)"/>
-            <!-- nucleus 2 — distorted, elongated toward nucleus 1 -->
-            <path d="M104 96 Q110 84 122 82 Q134 80 138 92 Q142 102 134 112
-                     Q124 120 114 116 Q104 112 102 104 Q100 100 104 96 Z"
-                  fill="#d06020" opacity=".88"/>
-            <!-- bright core 2 — off-center, pulled toward companion -->
-            <ellipse cx="118" cy="96" rx="8" ry="5" fill="#ffb060" opacity=".8" transform="rotate(-15,118,96)"/>
-            <!-- bridge between nuclei — tidal interaction -->
-            <path d="M100 90 Q104 92 108 96" stroke="#ffcc80" stroke-width="2" fill="none" opacity=".5" stroke-linecap="round"/>
-            <!-- leaders to each nucleus -->
-            <line x1="90"  y1="80" x2="76" y2="63" stroke="#ffc050" stroke-width="1.2" opacity=".9"/>
-            <line x1="120" y1="88" x2="136" y2="71" stroke="#ffb060" stroke-width="1.2" opacity=".9"/>
-            <text x="70" y="60" text-anchor="middle" font-size="11" fill="#ffc050" font-family="monospace" font-weight="bold">G1</text>
-            <text x="139" y="68" text-anchor="start"  font-size="11" fill="#ffb060" font-family="monospace" font-weight="bold">G2</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><path class="iso" opacity=".18" d="M48 96 C40 66 70 44 104 46 C138 48 160 70 156 100 C152 128 128 142 100 142 C72 142 54 124 48 96 Z"/><path class="iso" opacity=".3" d="M60 96 C56 74 78 58 104 60 C130 62 146 78 142 100 C139 120 122 130 100 130 C78 130 63 116 60 96 Z"/><path class="iso" opacity=".5" d="M74 94 C72 80 86 72 102 74 C118 76 130 86 128 100 C126 112 114 118 100 116 C86 114 76 106 74 94 Z"/><ellipse class="iso" cx="93" cy="92" rx="7" ry="4.5" opacity=".9" transform="rotate(20 93 92)"/><ellipse class="iso" cx="113" cy="100" rx="6" ry="4" opacity=".9" transform="rotate(-15 113 100)"/><path class="iso" opacity=".3" stroke-dasharray="2 2" d="M62 78 C48 62 40 48 36 34"/><path class="iso" opacity=".3" stroke-dasharray="2 2" d="M140 120 C154 136 160 150 164 164"/><text class="note" x="30" y="30" text-anchor="start">tail</text><text class="note" x="160" y="176" text-anchor="start">tail</text><line class="lead" x1="93" y1="92" x2="78" y2="68" stroke="rgb(255,100,80)"/><text class="t" x="75" y="71" text-anchor="end" fill="rgb(255,100,80)">G1</text><line class="lead" x1="113" y1="100" x2="130" y2="76" stroke="rgb(80,190,255)"/><text class="t" x="133" y="79" text-anchor="start" fill="rgb(80,190,255)">G2</text></svg>
         </div>
-        <div class="tut-label" style="color:#fb8c00">🔀 Possible Merger</div>
-        <div class="tut-desc">Two nuclei within a shared envelope — heavily deformed and being pulled toward each other. <strong>The individual galactic centers can no longer be clearly separated</strong>; they are in the process of merging. Strong tidal tails on opposite sides are the key signature. Mark as <strong style="color:#ffcc80">PM</strong>.</div>
+        <div class="tut-label">Possible Merger</div>
+        <div class="tut-desc">Two nuclei within a shared envelope — heavily deformed and being pulled toward each other. <strong>The individual galactic centers can no longer be clearly separated</strong>; they are in the process of merging. Strong tidal tails on opposite sides are the key signature. Mark as <strong>PM</strong>.</div>
       </div>
 
       <!-- Slide 4: Group -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <circle cx="22" cy="18" r="0.7" fill="#fff" opacity=".4"/>
-            <circle cx="178" cy="30" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="10" cy="170" r="0.8" fill="#fff" opacity=".4"/>
-            <circle cx="190" cy="160" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- 5 group members -->
-            <ellipse cx="100" cy="90"  rx="18" ry="11" fill="#6fa8dc" opacity=".9" transform="rotate(-10,100,90)"/>
-            <ellipse cx="100" cy="90"  rx="8"  ry="5"  fill="#c9dff5" opacity=".7" transform="rotate(-10,100,90)"/>
-            <ellipse cx="140" cy="80"  rx="13" ry="8"  fill="#76a5af" opacity=".85" transform="rotate(15,140,80)"/>
-            <ellipse cx="68"  cy="115" rx="15" ry="9"  fill="#8e7cc3" opacity=".85" transform="rotate(-20,68,115)"/>
-            <ellipse cx="130" cy="118" rx="11" ry="7"  fill="#6d9eeb" opacity=".8" transform="rotate(10,130,118)"/>
-            <ellipse cx="100" cy="140" rx="9"  ry="6"  fill="#4a86e8" opacity=".75"/>
-            <!-- leader lines -->
-            <line x1="100" y1="90"  x2="100" y2="73"  stroke="#6fa8dc" stroke-width="1" opacity=".7"/>
-            <line x1="140" y1="80"  x2="152" y2="67"  stroke="#76a5af" stroke-width="1" opacity=".7"/>
-            <line x1="68"  y1="115" x2="52"  y2="108" stroke="#8e7cc3" stroke-width="1" opacity=".7"/>
-            <line x1="130" y1="118" x2="145" y2="130" stroke="#6d9eeb" stroke-width="1" opacity=".7"/>
-            <text x="100" y="70"  text-anchor="middle" font-size="9" fill="#6fa8dc" font-family="monospace">G1</text>
-            <text x="155" y="65"  text-anchor="start"  font-size="9" fill="#76a5af" font-family="monospace">G2</text>
-            <text x="36"  y="107" text-anchor="start"  font-size="9" fill="#8e7cc3" font-family="monospace">G3</text>
-            <text x="148" y="138" text-anchor="start"  font-size="9" fill="#6d9eeb" font-family="monospace">G4</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><g transform="rotate(-10 100 88)"><ellipse class="iso" cx="100" cy="88" rx="18.0" ry="11.0" opacity="0.22"/><ellipse class="iso" cx="100" cy="88" rx="12.0" ry="7.3" opacity="0.56"/><ellipse class="iso" cx="100" cy="88" rx="6.0" ry="3.7" opacity="0.90"/></g><g transform="rotate(15 146 80)"><ellipse class="iso" cx="146" cy="80" rx="11.0" ry="7.0" opacity="0.30"/><ellipse class="iso" cx="146" cy="80" rx="5.5" ry="3.5" opacity="0.85"/></g><g transform="rotate(-20 66 120)"><ellipse class="iso" cx="66" cy="120" rx="13.0" ry="8.0" opacity="0.30"/><ellipse class="iso" cx="66" cy="120" rx="6.5" ry="4.0" opacity="0.85"/></g><g transform="rotate(0 132 128)"><ellipse class="iso" cx="132" cy="128" rx="9.0" ry="6.0" opacity="0.30"/><ellipse class="iso" cx="132" cy="128" rx="4.5" ry="3.0" opacity="0.85"/></g><line class="lead" x1="100" y1="88" x2="100" y2="64" stroke="rgb(255,90,90)"/><text class="t" x="100" y="62" text-anchor="middle" fill="rgb(255,90,90)">G1</text><line class="lead" x1="146" y1="80" x2="162" y2="62" stroke="rgb(80,190,255)"/><text class="t" x="165" y="65" text-anchor="start" fill="rgb(80,190,255)">G2</text><line class="lead" x1="66" y1="120" x2="44" y2="112" stroke="rgb(100,255,100)"/><text class="t" x="41" y="115" text-anchor="end" fill="rgb(100,255,100)">G3</text><line class="lead" x1="132" y1="128" x2="150" y2="146" stroke="rgb(255,200,50)"/><text class="t" x="153" y="149" text-anchor="start" fill="rgb(255,200,50)">G4</text></svg>
         </div>
-        <div class="tut-label" style="color:#4488cc">⭐ Confirmed Group</div>
-        <div class="tut-desc">3 or more galaxies physically associated (same redshift, gravitationally bound). The app marks the closest members. Mark as <strong style="color:#64b5f6">Group</strong>.</div>
+        <div class="tut-label" style="color:#4292C6">Confirmed Group</div>
+        <div class="tut-desc">3 or more galaxies physically associated (same redshift, gravitationally bound). The app marks the closest members. Mark as <strong style="color:#4292C6">Group</strong>.</div>
       </div>
 
       <!-- Slide 5: NonGroup (deblending) -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <circle cx="20" cy="20" r="0.7" fill="#fff" opacity=".4"/>
-            <circle cx="175" cy="30" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="15" cy="170" r="0.8" fill="#fff" opacity=".4"/>
-            <circle cx="185" cy="160" r="0.7" fill="#fff" opacity=".3"/>
-            <circle cx="60" cy="160" r="0.6" fill="#fff" opacity=".3"/>
-            <circle cx="150" cy="155" r="0.5" fill="#fff" opacity=".3"/>
-            <!-- ONE galaxy — slightly elongated, no companions -->
-            <ellipse cx="100" cy="100" rx="30" ry="18" fill="#c8a050" opacity=".85" transform="rotate(-12,100,100)"/>
-            <ellipse cx="100" cy="100" rx="14" ry="9"  fill="#f0d080" opacity=".8"  transform="rotate(-12,100,100)"/>
-            <ellipse cx="100" cy="100" rx="5"  ry="3"  fill="#fff8e0" opacity=".9"  transform="rotate(-12,100,100)"/>
-            <!-- 4 leader lines all converging on the same galaxy -->
-            <line x1="96"  y1="88"  x2="74"  y2="64"  stroke="#ff7a6a" stroke-width="1.1" opacity=".9"/>
-            <line x1="107" y1="87"  x2="130" y2="64"  stroke="#6fa8dc" stroke-width="1.1" opacity=".9"/>
-            <line x1="82"  y1="98"  x2="56"  y2="92"  stroke="#8e7cc3" stroke-width="1.1" opacity=".9"/>
-            <line x1="116" y1="102" x2="144" y2="96"  stroke="#76c47a" stroke-width="1.1" opacity=".9"/>
-            <text x="70"  y="61"  text-anchor="middle" font-size="10" fill="#ff7a6a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="134" y="61"  text-anchor="start"  font-size="10" fill="#6fa8dc" font-family="monospace" font-weight="bold">G2</text>
-            <text x="30"  y="90"  text-anchor="start"  font-size="10" fill="#8e7cc3" font-family="monospace" font-weight="bold">G3</text>
-            <text x="147" y="94"  text-anchor="start"  font-size="10" fill="#76c47a" font-family="monospace" font-weight="bold">G4</text>
-            <!-- red X overlay -->
-            <line x1="78" y1="122" x2="92" y2="138" stroke="#e53935" stroke-width="2.2" stroke-linecap="round" opacity=".85"/>
-            <line x1="92" y1="122" x2="78" y2="138" stroke="#e53935" stroke-width="2.2" stroke-linecap="round" opacity=".85"/>
-            <text x="100" y="158" text-anchor="middle" font-size="9" fill="#e53935" font-family="monospace">1 galaxy, 4 labels!</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><g transform="rotate(-12 100 104)"><ellipse class="iso" cx="100" cy="104" rx="32.0" ry="19.0" opacity="0.22"/><ellipse class="iso" cx="100" cy="104" rx="24.0" ry="14.2" opacity="0.45"/><ellipse class="iso" cx="100" cy="104" rx="16.0" ry="9.5" opacity="0.67"/><ellipse class="iso" cx="100" cy="104" rx="8.0" ry="4.8" opacity="0.90"/></g><line class="lead" x1="96" y1="98" x2="72" y2="70" stroke="rgb(255,90,90)"/><text class="t" x="69" y="73" text-anchor="end" fill="rgb(255,90,90)">G1</text><line class="lead" x1="106" y1="97" x2="132" y2="70" stroke="rgb(80,190,255)"/><text class="t" x="135" y="73" text-anchor="start" fill="rgb(80,190,255)">G2</text><line class="lead" x1="90" y1="106" x2="58" y2="100" stroke="rgb(100,255,100)"/><text class="t" x="55" y="103" text-anchor="end" fill="rgb(100,255,100)">G3</text><line class="lead" x1="111" y1="108" x2="144" y2="104" stroke="rgb(255,200,50)"/><text class="t" x="147" y="107" text-anchor="start" fill="rgb(255,200,50)">G4</text><text class="note" x="100" y="150" text-anchor="middle">1 galaxy, 4 labels</text></svg>
         </div>
-        <div class="tut-label" style="color:#e53935">❌ NonGroup</div>
-        <div class="tut-desc">The catalog shows a group of N=4, but there is only <em>one</em> real galaxy. All markers (G1–G4) point to the same object — a severe deblending error. There is no group here. Mark as <strong style="color:#ef9a9a">NonGroup</strong>.</div>
+        <div class="tut-label" style="color:#9E9AC8">NonGroup</div>
+        <div class="tut-desc">The catalog shows a group of N=4, but there is only <em>one</em> real galaxy. All markers (G1–G4) point to the same object — a severe deblending error. There is no group here. Mark as <strong style="color:#9E9AC8">NonGroup</strong>.</div>
       </div>
 
       <!-- Slide 6: PP -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
-          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
-            <!-- divider -->
-            <line x1="100" y1="8" x2="100" y2="192" stroke="#2a2a2a" stroke-width="1.5"/>
-            <text x="50"  y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">pair in group</text>
-            <text x="150" y="18" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">deblend in group</text>
-
-            <!-- LEFT: two distinct galaxies within a group context -->
-            <circle cx="12" cy="35" r="0.6" fill="#fff" opacity=".35"/>
-            <circle cx="88" cy="175" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- faint group members -->
-            <ellipse cx="22"  cy="65"  rx="7" ry="4" fill="#6fa8dc" opacity=".35" transform="rotate(10,22,65)"/>
-            <ellipse cx="78"  cy="155" rx="7" ry="4" fill="#8e7cc3" opacity=".35" transform="rotate(-15,78,155)"/>
-            <!-- the two close galaxies (the pair) -->
-            <ellipse cx="35" cy="105" rx="14" ry="8" fill="#f4c97a" opacity=".95" transform="rotate(-15,35,105)"/>
-            <ellipse cx="35" cy="105" rx="6"  ry="4" fill="#fff8e1" opacity=".7"  transform="rotate(-15,35,105)"/>
-            <ellipse cx="65" cy="100" rx="11" ry="7" fill="#a8d4ff" opacity=".9"  transform="rotate(10,65,100)"/>
-            <ellipse cx="65" cy="100" rx="5"  ry="3" fill="#e0f0ff" opacity=".65" transform="rotate(10,65,100)"/>
-            <!-- ring around pair -->
-            <ellipse cx="49" cy="103" rx="28" ry="20" fill="none" stroke="#4dccaa" stroke-width="1.2" stroke-dasharray="3,2" opacity=".7" transform="rotate(-5,49,103)"/>
-            <!-- leaders -->
-            <line x1="35" y1="97" x2="26" y2="80" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
-            <line x1="65" y1="94" x2="72" y2="78" stroke="#a8d4ff" stroke-width="1" opacity=".9"/>
-            <text x="21" y="77" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="75" y="75" text-anchor="start"  font-size="9" fill="#a8d4ff" font-family="monospace" font-weight="bold">G2</text>
-            <text x="49" y="136" text-anchor="middle" font-size="7.5" fill="#4dccaa" font-family="monospace">pair!</text>
-
-            <!-- RIGHT: group N=3 where G1+G2 deblend same galaxy -->
-            <circle cx="115" cy="35" r="0.6" fill="#fff" opacity=".35"/>
-            <circle cx="192" cy="170" r="0.7" fill="#fff" opacity=".3"/>
-            <!-- real third galaxy (smaller, clearly separate) -->
-            <ellipse cx="175" cy="140" rx="10" ry="6" fill="#76a5af" opacity=".75" transform="rotate(10,175,140)"/>
-            <ellipse cx="175" cy="140" rx="4"  ry="3" fill="#c8e0e8" opacity=".6"  transform="rotate(10,175,140)"/>
-            <!-- single galaxy split by deblending — slightly elongated -->
-            <ellipse cx="148" cy="97" rx="22" ry="13" fill="#9fc8f0" opacity=".85" transform="rotate(-8,148,97)"/>
-            <ellipse cx="148" cy="97" rx="10" ry="6"  fill="#ddeeff" opacity=".7"  transform="rotate(-8,148,97)"/>
-            <!-- faint secondary lobe (deblend artifact) -->
-            <ellipse cx="158" cy="92" rx="8" ry="5" fill="#b8d8f8" opacity=".3" transform="rotate(12,158,92)"/>
-            <!-- G1 + G2 both point to the same galaxy -->
-            <line x1="140" y1="88" x2="124" y2="70" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
-            <line x1="157" y1="86" x2="168" y2="68" stroke="#f4c97a" stroke-width="1" opacity=".9"/>
-            <text x="117" y="67" text-anchor="middle" font-size="9" fill="#f4c97a" font-family="monospace" font-weight="bold">G1</text>
-            <text x="171" y="65" text-anchor="start"  font-size="9" fill="#f4c97a" font-family="monospace" font-weight="bold">G2</text>
-            <!-- G3 points to the real third galaxy -->
-            <line x1="175" y1="134" x2="182" y2="120" stroke="#76a5af" stroke-width="1" opacity=".8"/>
-            <text x="184" y="117" text-anchor="start" font-size="9" fill="#76a5af" font-family="monospace" font-weight="bold">G3</text>
-            <!-- same-object indicator -->
-            <path d="M128 76 Q148 84 164 74" stroke="#e53935" stroke-width="1.1" fill="none" stroke-dasharray="3,2" opacity=".8"/>
-            <text x="148" y="155" text-anchor="middle" font-size="7.5" fill="#e53935" font-family="monospace">G1=G2 same!</text>
-          </svg>
+          <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><line x1="100" y1="12" x2="100" y2="188" stroke="#2A3240" stroke-width="1"/><text class="note" x="50" y="22" text-anchor="middle">pair in group</text><text class="note" x="150" y="22" text-anchor="middle">deblend in group</text><g transform="rotate(10 22 62)"><ellipse class="iso" cx="22" cy="62" rx="7.0" ry="4.0" opacity="0.20"/><ellipse class="iso" cx="22" cy="62" rx="3.5" ry="2.0" opacity="0.50"/></g><g transform="rotate(-15 78 156)"><ellipse class="iso" cx="78" cy="156" rx="7.0" ry="4.0" opacity="0.20"/><ellipse class="iso" cx="78" cy="156" rx="3.5" ry="2.0" opacity="0.50"/></g><g transform="rotate(-15 36 106)"><ellipse class="iso" cx="36" cy="106" rx="14.0" ry="8.0" opacity="0.22"/><ellipse class="iso" cx="36" cy="106" rx="9.3" ry="5.3" opacity="0.56"/><ellipse class="iso" cx="36" cy="106" rx="4.7" ry="2.7" opacity="0.90"/></g><g transform="rotate(10 64 100)"><ellipse class="iso" cx="64" cy="100" rx="11.0" ry="7.0" opacity="0.22"/><ellipse class="iso" cx="64" cy="100" rx="7.3" ry="4.7" opacity="0.56"/><ellipse class="iso" cx="64" cy="100" rx="3.7" ry="2.3" opacity="0.90"/></g><ellipse class="iso" cx="50" cy="103" rx="30" ry="20" opacity=".35" stroke-dasharray="2 2"/><line class="lead" x1="36" y1="106" x2="24" y2="82" stroke="rgb(255,100,80)"/><text class="t" x="21" y="85" text-anchor="end" fill="rgb(255,100,80)">G1</text><line class="lead" x1="64" y1="100" x2="74" y2="78" stroke="rgb(80,190,255)"/><text class="t" x="77" y="81" text-anchor="start" fill="rgb(80,190,255)">G2</text><text class="note" x="50" y="136" text-anchor="middle">pair</text><g transform="rotate(-8 148 98)"><ellipse class="iso" cx="148" cy="98" rx="22.0" ry="13.0" opacity="0.22"/><ellipse class="iso" cx="148" cy="98" rx="14.7" ry="8.7" opacity="0.56"/><ellipse class="iso" cx="148" cy="98" rx="7.3" ry="4.3" opacity="0.90"/></g><g transform="rotate(10 176 142)"><ellipse class="iso" cx="176" cy="142" rx="9.0" ry="6.0" opacity="0.30"/><ellipse class="iso" cx="176" cy="142" rx="4.5" ry="3.0" opacity="0.85"/></g><line class="lead" x1="144" y1="97" x2="128" y2="74" stroke="rgb(255,90,90)"/><text class="t" x="125" y="77" text-anchor="end" fill="rgb(255,90,90)">G1</text><line class="lead" x1="153" y1="96" x2="166" y2="74" stroke="rgb(80,190,255)"/><text class="t" x="169" y="77" text-anchor="start" fill="rgb(80,190,255)">G2</text><line class="lead" x1="176" y1="142" x2="184" y2="124" stroke="rgb(100,255,100)"/><text class="t" x="187" y="127" text-anchor="start" fill="rgb(100,255,100)">G3</text><text class="note" x="148" y="160" text-anchor="middle">G1 = G2</text></svg>
         </div>
-        <div class="tut-label" style="color:#4dccaa">👥 Possible Pair</div>
+        <div class="tut-label">Possible Pair</div>
         <div class="tut-desc">
           <strong>Left:</strong> two clearly distinct galaxies within a group — they look like a pair visually.<br><br>
-          <strong>Right:</strong> a group of N=3 where G1 and G2 are deblending artifacts of the same galaxy. The catalog says group, but the image shows only 2 real objects. Both cases → <strong style="color:#4dccaa">PP</strong>.
+          <strong>Right:</strong> a group of N=3 where G1 and G2 are deblending artifacts of the same galaxy. The catalog says group, but the image shows only 2 real objects. Both cases → <strong>PP</strong>.
         </div>
       </div>
 
-      <!-- Slide 6: Tips -->
+      <!-- Slide 7: Real examples -->
+      <div class="tut-slide">
+        <div class="tut-examples"><figure><img alt="Pair" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCADIAMgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5+UECQKcsOhFDAoASQcjOe+afF+73GTt0x3q5p7WqRO92pYn7oFJuwWe9iiIyxXJ4I5pGbew2rhBUr/vGYRj5TyCaSGUB2Vl4wc0Ie241HwnAztOaYQROGA4PGPQVNHtJKj070zyJo23yZAPQ+1PqJoXyzIQQ4wOTmmRko2GbcpPSuhMmnHQNjgfas4B6c1zzJ9wMR15AovZhZ2uSFpGfcQAOnFIwLkgls9qYWCgk7iAeppxk37CM+oFJ2K2VmKGVWA4x2FEoG0tgbc9fWpbeESMzykKUHFWVsfPsGud2xQePehbk6RWpnbQzliMHtjvTcENjgDHNOZ2UBSOBzkd6C7umRGDj17incGk2OAIk2AKQcEe1RFGK+a3TPQVIWyMoPmJ5B7UiZUESsNvUCmmyWrbAwYptjAz2zSM7quHGc0+R8HIBHoaEU7cggjrgmlfoaWuxGAbaORTRuDDPQHBY+lI0nJ7H1pzSFo88bgOOOtCYn7yEmRgJCMFR2/xpyMoTjLDoKaVbYqkn3FSFd20fKAOaA02QtrI6PygdR2Jp84EzFkQoPUd6rqpTJVh89K85x3BHVfWk12C0UIEcBQx3H+IDrRTonQvvJZc9RRRdoahcaSxmTaPl6U5QVGzIK9Scc010bfuU/KD2qWMAHGevUUmhN6iI4DZ2+2ajUMrliMjPI9qdKWb5VUAAc4NKoPXJxjB96aJvfcRdgkBweT61NLIJCEBYKPU1GmGyNh+UfeNLJtKAIdz5xmjZha5HIxDhMZB5HtTAd0Wc/vD3pNsnmqGIVu9SRHbuJwQOnuabKsNiC7SHLcHJzTljJbO/C9uKGYCYdOmenenqcnGOT2Hah7BFa3AuxcFRg9DT/tEvkeTuwCeg6CogNh4GOc8mnBiysQowOtK1mG71BmAbzEBbnBBpoIbcysMjqKQMu/A5OOvauh8O6bY3Ntcte3CxMiErj+I0S0EtDn2AVflBLHnr1ppBI2nBFTS7DkpyOcE+lRBcENuxmhO43ZiqCcKWJ7BTUbo6MQoCtnvUiEk4ByM9aJmLEnDHHGKYdBGAHBbJxzimZbHDfL2p3zPyykEDoKjCYztB9qEFlayHhT5oZSxbvmpim2Pp8/qahQYKk7uetSnZI20k4ofYEkkNLsEAVVx6VGykHe/8XFKTgAR4BHSkYlnAbIbFCWgt9CSHAIUqST1ooD4I4y3Q/wD1qKVg5RqcqC2dvU4qTaP4OQec0+4kVggAPA7dKrOxKjYmAOuKbHpckzncy4HbnvTQ207gx4GDR5ZjVWAyeuKMZBBGCeaLiaJEkViFYnaehpTtER2YyTjng0wwthTkH6VGyEMA7YHXAFLUdyxbiIzI0hJTPzZq5qa2uALUYcjqe1ZW1d4XOWPINS8lMHIbtUuOoJ+7YaVIKnPQde5qxA8caNkgv71WUrggkZHcihVBBVhnPpVIVxytunYuVYHoae4CuDuG3HrTTGqnaqj3yKbIoJIUfKvUU2xrcl2/uQeAaieR1UsR+R616D8OvBtp4kguXubsQCJdwHHJrj9bsfsOoXMEbh1ViuR0IFYwrRnNwW6KlTla/QzgMxHd34xSSDbCflJz2HUUEbotxPKjge9PyflwSMjkVtoRpqiJGxgNx6H0qZJOeSG5qKRl3ZKfKOCKcqg8jITsDTdiV2J2CkEoQPbNVmKgMu/kdKe23n5cFe9S29k9wr7FztGTS2G7kJw6gZIJ6CoGJGRgnIqdUYsVGAO3PakZQTjPHahKxNm7IfsxHlAGFRhCso5+hPalZf4CcDtimtsjChMjB5o2LsLsYZAOQM5NFOcnywQhyxzj1ophqTTx+XujBztHJNQxOMLtPGKR2eYkHpnPWnNHkE4xzwBS9QYqO65yBz6mkhbJzIccY4GRURIDAsCfbNPC7RnJGOgxRoCk27IcSDjB4pikliGyB0FOTGQRkijHzKRlvagHqxjIcBuDinKXMhIIA75oDAlmbgDqBSOVXLD64pajdg4XOclfTvVmGBp8NxnHAB6VCqsCGKgjtT95TJGACCCOhpvTQItPUazGJjvBLetAl3cN94nrUZDMVBJI9RT4o+RnAANDSFF2NCz1O4tlcQyNGDwShqCWZ2VieeMkk9ahJwcgfKKj5MjZ449aiMY3vYqTdrCofMQBwME5oKYYEv0OSKWOPjIIAPv0qN/mjODlh1I71ej2IbdlcWUmRWJU7c9aSTcxQjhR3pIw7xhQ33OeafE/zgN65PFFrDWo5TI6jofUnvUtpczQ79rY3Dv1ApjBHcYO0D0poZndk3Dj+KpG42FTGD+7IctnNJLu8scKozyR3qPed4xk7T69aWRmYDoFA6GrEnoyMgkhTgnPXPanoThuBtHAPehcswxg4601wDvODu7AUaXEpMcwyB8zZIoo+bkM2MDPSii6DUkOUUnPzelICcKQDn26GhgnmBTlcg9adGgcqCPlHGQalqwJ3YxQT8xG1s96kkkQRnnJzzT7lEgO0OZD61VJDHgDNCSepTXKKjlcgkDPXFKR8wMWcdiD1oTLP2AY/McdaeyujKqbdvOMU9OgJWQ1/LwN3I9vWtPSbaFrXU7yeITraW6ssLEgO7OqruxztGc8dcVmCMP8u3BXrVrTrt7J5RGiOsqGKWOXJSRSQcHGD1AOQQeKqDSldmdSDlH3dzTlhkgvY4DpVnLc3UcZgiSVpYySSNwCtznGAN3GDVHX4rSPWbuPTyHt4pNqsG3LkAbgD3AORn0FXE1y5inkkNrZMz262aKBIoiiGeFIcNk5OSSTg4rL8wiYPEqWjI25EgLYTHoWJP5n9K1nKDjp37GVOnUT95dO+n5/1qQ7WDYJwOwFKIwRhyUI5xnrU8yLOpmgVY5EG6WNR0H99B/d9R/D/u9IHPzBvUdxWLjym8XfQcjDy2B6CoiAVyc8frTyo8onkk+nagKTtJBGD1qY9x2ewsZ2xcnKn2o8seZhRj6dKjlyNwb5lJyB0FGQMEYx0xmqF1JLVN84RuMnBFaOs6XJpwUydHGVxWZBJsfcpyQeoq1dXs1zsEshIXgA1FncuTSRViwSu7gEUtyrxDiPnvTWLBlBOAvT3p+WaZd7HbxnFU7CTuR78BRwM9aVgHyG+6BwKsXUUKSjypA4+lQS5wM4xmkncUtNARSEGMdcg03kgliCwpVOVRsHPTHrRhsEgZyfuimJ6qwofIAxjIwwopOF5bPPtRQWuXqIVZmUgjgc5pw3KDghSO471OtvI8LFQNnqOcUxozHtDcj3qbprzFra5HIcgKpwxAzmrUyRmKPyxgjqaqDcrgkA4HAqa4mSVsqCAB+GapxHF2GxIzlmBAHf/wCtV7S7R7y5ESEfU1nqTzGOS3eprS5lgcuvyFO+amabXu7hCSUry2JL20a1vHRycL0A6GqjkZxjH0qee5kmkLO4JYZzUJkUjkYI7etEE0ve3HNxbbQgLbl5JX3peQ56nsPpUYYHcVDbaVGbAZASnTJ7VT0JvqSo8kE8EsTYeNg6secEVow2a3cubcBUkb5o/wDnmSeg/wBkngHt9084LZo+YDkHHBFdp4RtbaYbboEI/G5cZXtx/h0Perg76MzmnutzPl8MTLGxOVGM5rBlglhc5YkA4wa9s1YQQ+HYoZbhLi6AIMirjI7ZzyTjv3/U8JbeHZtTuDsjY4PFTUtDcUJXOJaISHkMM1b02xgubxklkbyYonnl2feIRSSB7nGK2tZsIrGWSHh2j4fB4z6Ejt6457DnJXFgvZLK/acgSkqUYMMBlK7SuB0GOOOnGKycnJPlOqnGMJRlU2/QdJDbwPZz3NhcwW9whYRxzZEnIxhmBIHIz+lM1y2itdZvraCMrFFM0SZbJwMd+9LNexyG0T7EiWdsr7YxMdzliCSXI9QO1V9Wvl1HUpr0W/ktIxdlEpcbj1IyBgdOOalKXMr/ANdjWq6coNJq9108tei0uVzkfOxJP3cE0oLIituI/WggorBlBJHenbiERWwFI5x2rY41tYcQZF5647VHkgg5II6ginjGDjcFXnPvTWJbAQnJPNJNFq99CN5DgAjOTTkfbF/ebOPpStGCMsxznj2p0bbWC8Z9T3pvUS0eooBH3iME8GikAO5MYPPfpRUsZueH9SjsoZ4pIQVccbqx7xjJMQh755psm5nyOcdOaYRkFs5IOMDvSUEnzIXO7W7Bt5O4gMBjApNwIBRTu6EHvSvFsUFep/Sk3hWA59zVvUNtyx9n/ds5YD/ZFV93ygbf3gP4Yo8wkuMHA/h71oactsWH2jIG0/nQHxbFBVYjI2kVZgjRlLSkCQDpSXUUYYCIgAdPaoEX74Zvko22E+zGuvy8HIzkj1py7GiAUYx2pDlX4AK46dxSlY/MGzAQ9c0Be2xJGABlV5OM5Fa+nX0kT+WoyPUVkRBjxnK54NdZ4N0ibUr6OMJ1IBxUSlya3K5eY63wvo974hnjjRWKcdq7TU449PWfQvD7ILqFf+JjqGMpaD+4p7yHkcdORwcle4g8K3un+EIrXQbqDT7udlW4upAd8UX8Rjx/H6foQea8x+IWq6boOlromh/u7WLOTnLSv3Zj3Y//AFhgACvLeJliJ2ibwhGlG73/AK/r+tfMvF01vHIbWyG2GM4yTksfU+//AOquRLs0jHqD37Ve1CfzpNwyWPWqik7QRjjqDXqRjyqxzuV3qRuq4Xr9OtMAKrgdOvIpSw3Eo3APSpn+diOuR0qhJOxCpLbi4PtTmU5DAjJHOe1C4LbcEbetDEmTLYC4xzTuPZBubO1QoBHNPVQpUg4z6UyNRsVSOppQ5UAZJJOAaHuCYSje5zkDsKaV5WrdvKgikWUbmP8AF6VWlfBAToOtJCa6gcEL6Z6UUxpBsJx0NFUJkgyOC2S2eAKauQuAepzuNBRmlBH3CMEimEI4KAMAO9AW7akrsHQYfLg9qaWLTYYce1TQxwpbum4lyOCO1MG4QsvJI701oF7iMgRjtbljSJIS5LsVx7U5UZgCRlielT3OnyxQF3R0R+5U81Dkr2bKvy6kUjKGBU7mpjkqgC9z1prcR5/iHAppV8KB065osF7q5KdqN0+cilIOMNyMVE28sSeuO9PSNipfHzUKLYm1sW7OJpJFVRkHjFfQfwe0SC1iW7uto2jOTXhWiNHHMjsAefmz0rvpfGv2PTvIt2YDGOK568XNcqKi+rPTfiX8QUgha1s3CjGCQa+dtb1J7y7MsrlsngZ60mranLfXBkY7g1Zk33fm4HpRh6EaKutypScyHex8wEdTgUIrCNRkNzyaQ5Jxx1zuNKWKggn6YrpFG61sRlF81gn3gMcetAZztXI+XrT8Yyx+9Q52EMoyR1zRczceosT5ZiwABOM5prsQGIwc9KVghPGdx+bHrSEfO4+YKBxSuUmNgLkKGUjjnNSOxK/cyBxUJ3BgWzgHg1LHuwV6An0ptdRX1Dy2CZAPBqPO59xwoPfFGC3BZ81NC4jjIcHHTmi6Qt9ERqCXLDOD7UVpafZvdTJFCNxbgUVDqJbg2kylcR+W7Rb/ALh5IpYhnHTJ6e9ISGOcgt3qNmO7aFIPqKu10UmtyzFYzywPMg+QdSOtVSxVujAZAq7b300Fu0YOQ3XHaqw+aQAHBY9+1Fxb6lnTmEFzFLJh1DA4Nel/EDxjpOteHbOzsrMRTxAbmAA7VwUmkyfZBMjHAHPFZEhc/KTnHArnnQVSSk+hfO0ml1BZNjYUjd6N3pJzj5FHJ5z6Uwr8zbx8w6cUbe+TwM81s9SOhqLYL/ZnnNMnmd171mocZQEkZ/KhSxQDBOaa2FUKOv8AD71SQMmikaOQuBx1AqZ52xksME5Iqmu5Qqg5YUOQXGScjsKWgWexZtixL4wfTPpUcjszYxkdM1CxfduL4PQe1SRf61FJIGee1F92O+yQx2BbPAA46VLZxm4Plj73ar+s2FvZxwG2nWRnGWHpVK2m8hxIAQ6nOalNSV0VJOLsye8sri0CtcQssb96oOpwAmTzyTW7qWt3N7bRwzgFFXjisQE4A3d84pq/UljtokXfnGz0oVsrlifSjIAcKAC3bNCspOJPYjFUL0EOdw3DPPWjJikJU89cmnTBUkDocA881EeeOOfWhCuPEvO4n5vfvTmLPhRg+ppu0FVLKx2jFIrtjCLwaVirrqdh4BltLbURLdSAGPkZorlEmdGXA6HJI7+1FZypqbuxWbA4beAo3HsKXJ+Uqp5XHNdJe6AYwRGhDdRXP3UUkcm2YFW7Vr10COqIWIQAbuaSLiZSckE5pcjOCoyO9NiJLc5yRyBRs9A3ie8+Htc8KQ+AJra9hjOolcAkc5rxDUmja+kMGAu48elRrKwwqZYngVW5NwSxAIPPHNayqcytYxhDlbdxMNJ8jkrjvUsZzjByF60zIDkHcVPc0/jYckAYrK9zXYkM20Mqgc9KqDiYMc7emPSlCllAYZb61LE5jGMAjP1ouLqNAJLCP5iOpFKu4jBwAO/elVdpPJwTnC0MnlyfKdwzx7VJTTWoxVG7IO4e/anZ3Nx8xHAI60mzaSEPBNIiNkjOCOmKbBPlQriQBg7d+voKaI3XaAQVbn607ndhuh7mnRDLbQCMDjPWlsN3luIxfYQc8dvSkYKrrv4wO1dd4Dm0WKW5bW496lD5ZPY+9c7qfknUJpLcbYQTtB9KyhWcqjhb5mk6VoKV16FFVJJxz/hVyW1VbdJQ4JPGBVKLIYMSVH92rCgN827jPPtWrREbDSgYbmZiemPQ1Gy7ic9R3qYBi7bSNvU4qEn5eASW74p3JaAuSipncp4PtSyKU+WNgO1IxwMDvx0ob5B5ZPPZqcQYRMQAGOGH60UMNu0nkniik2M+oPFfhaO0ZggXf6bhkV5F4n0PDtIRkj2r6G1mKbVL951t7iS2lj3bBDtKk/7VcB4r0GW0tfOlglQN08xcBh6ivRp5dKrFyTs+xhSjaLSd7Hgl5aiFctnntVZSoBIwF9a6rWbcCUsBxg8EVymPnYY4Xn61wyjyuzNE2kRuWQq8bnBPI70OxaQuw5zzirVtFEwk811V8ZT3PpVZgSdo6g1JSQAqVPynPTntVlJLX7Mqru84dzVN9zYycgelOXcw6YHUmk0Pm10EY7c8HJPAqTYzEqijp1FNd8OuAMdz6U8OcN8wx2HQ0bDt0Gqg3AgNxR82QQDu7Z6UgOSCm7n3p4Dh8SH5uoFCFuRs27IVseopIFJBORx610eheGNT10M2m2ckpXkhFzgVk6rps9jcNDOhjkjOGUgg5qVNPRbolyWxUdCVOCWIHQ9Kb0OODx1PWnDcS4c8fw4pkwGcr2XvV37lWshwdQQueTyfellQOnykgdcelMC9MHGcdqeykANhuuM+1PQW+41Vzh85OMc08Zw2drAnpikBC5IP0BFOCldrFh1ycUa2FpcUFozg4BPYVEzEBQvUHOKfNtdtwyGzQMxud2GGOCaSQN6ajWGGBccMeCO1OuoxEx2SBsjrUyxxmLAf5sVUHBK8sg6U9wa7iMw8xVUgccGihkUsmc59D6UUWFdM+7vDs8MlszT3BYscsQOWPqa5z4iyW0+kC3NydsTF0455HINefvrN5p8T7ZGVsevWuN1vxVPdbhK7c+prVYqpGXMtzlpUJK8ovcwfEk4jkcIeBxXFySMGOBwT1ra1i7E4cj73setYm7J+YjHqOlZNuWstzrSaSEDAyfdxj17mtHTdObUPOaNgmzJJbvWfPhgpU9+T3pI53ic7GbA9+tS03qh36DVQxlwB1Jzmrdv5TQsGzkdBmqjEO+QS2aUBgV2fd6801qNRLE0kcu1YYwSBhu1U/KBcgg5/lUysEY7z1GRikWJnwWGBg8560PQFd6jVBDBOKkDoW+XkqfzqL+HcgGR15qTCgBuORSYJHs/wb+I1r4TiuIriFZRIByONtcJ8QNaj1/xDd3yR7EkYnatcnC3lrlTgnPJqfL+UGB+YjB4rJUIwk59yV2IxsAOw4bsDUDBSxLAll608gBsg8gdT60bdz7RnJHX0rZA1cReWQOeMUrbt+duFHSnSKEYjGR0zQBuUgE5oe4XQA7xkE9ORjpTUKnO5iaMFXADckYpXKJ90cgfNQlqVcmITYSeGPTiomABKuMmrCj7W6CBOR1oubCSEksrL65p2FfUrMxyBjA6cU0BQcFiB3A604nbtxnFJKdzdBx39aEwY1lHmjeSMLwaKeSGClVGAOc0UEXa6H0B4xls55pktGmcrnlIsrx3B9PevINfWRLnIbMbciiitfZxFSfumJ13FT0GDUkNurIBwG7ntRRUNJGidnYgeFfN2huT0YUy4gERYM+B/D70UVncb3aH25jRlaTBVeeKecvuaOMlN3H0oooegkyB4my4IwRyM0DkAMQGAxtB60UUCT0HLGMbsBWOeKQr8oLjLd6KKi+paG4yyiMHNSKXLMOfpRRWjWgnuRhsjkd+9Icjfnv70UUkJK4xecHnB9Km/1cg+U7ex9aKKb3M09bApDs3y4Ud6CpJORnPaiilfUtbFixu2tpwy9R1FX9W1X7WoCr8wwABRRVJ6Ey0WhkKCfvHDAcA0wSFmO9R6fjRRRHYp9xQvQbuv3sd6KKKQXP/Z"><figcaption>Pair</figcaption></figure><figure><img alt="NonPair" src="data:image/jpeg;base64,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"><figcaption>NonPair</figcaption></figure><figure><img alt="NonPair (deblend)" src="data:image/jpeg;base64,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"><figcaption>NonPair (deblend)</figcaption></figure><figure><img alt="Merger" src="data:image/jpeg;base64,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"><figcaption>Merger</figcaption></figure><figure><img alt="Group" src="data:image/jpeg;base64,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"><figcaption>Group</figcaption></figure><figure><img alt="NonGroup" src="data:image/jpeg;base64,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"><figcaption>NonGroup</figcaption></figure><figure><img alt="Poss. Pair" src="data:image/jpeg;base64,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"><figcaption>Poss. Pair</figcaption></figure></div>
+        <div class="tut-label">Real examples</div>
+        <div class="tut-desc">Legacy Survey cutouts from our training set, each classified unanimously by our classifiers. This is exactly what you will see.</div>
+      </div>
+
+      <!-- Slide 8: Tips -->
       <div class="tut-slide">
         <div class="tut-svg-wrap">
           <svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" fill="#0d0d0d"/>
+            <rect width="200" height="200" fill="#05080D"/>
             <!-- phone outline -->
             <rect x="70" y="20" width="60" height="100" rx="10" fill="none" stroke="#444" stroke-width="2"/>
             <rect x="78" y="28" width="44" height="68" rx="4" fill="#1a1a1a"/>
@@ -756,19 +595,19 @@
             <path d="M88 62 L112 62" stroke="#4488cc" stroke-width="2.5" stroke-linecap="round"/>
             <path d="M106 56 L112 62 L106 68" stroke="#4488cc" stroke-width="2.5" stroke-linecap="round" fill="none"/>
             <!-- double tap icon -->
-            <circle cx="100" cy="50" r="5" fill="none" stroke="#4dccaa" stroke-width="1.5"/>
-            <circle cx="100" cy="50" r="2" fill="#4dccaa"/>
-            <text x="100" y="44" text-anchor="middle" font-size="7" fill="#4dccaa" font-family="monospace">2×</text>
+            <circle cx="100" cy="50" r="5" fill="none" stroke="#4292C6" stroke-width="1.5"/>
+            <circle cx="100" cy="50" r="2" fill="#4292C6"/>
+            <text x="100" y="44" text-anchor="middle" font-size="7" fill="#4292C6" font-family="monospace">2×</text>
             <!-- bottom home bar -->
             <rect x="85" y="112" width="30" height="3" rx="1.5" fill="#555"/>
             <!-- tips text -->
-            <text x="100" y="145" text-anchor="middle" font-size="10" fill="#aaa" font-family="sans-serif">💡 Tips</text>
+            <text x="100" y="145" text-anchor="middle" font-size="10" fill="#aaa" font-family="sans-serif">Tips</text>
             <text x="100" y="160" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">swipe ← → to navigate</text>
             <text x="100" y="173" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">double tap → Sky Viewer</text>
-            <text x="100" y="186" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">⏭ skip already classified</text>
+            <text x="100" y="186" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">skip already classified</text>
           </svg>
         </div>
-        <div class="tut-label" style="color:#e0e0e0">Tips</div>
+        <div class="tut-label">Tips</div>
         <div class="tut-desc">
           <strong>Navigate:</strong> swipe left/right or use Prev/Next.<br>
           <strong>Sky Viewer:</strong> double-tap the image to open Legacy Survey with DESI spectroscopy overlay — circles show which galaxies were observed and at what redshift.<br>
@@ -789,7 +628,6 @@
 
   <!-- NO CATALOG SCREEN -->
   <div id="noCatalog">
-    <div style="font-size:52px">📂</div>
     <h2>Catalog not found</h2>
     <p>Run the export script on your Mac:</p>
     <div class="code-blk">python pipeline/export_standalone.py</div>
@@ -822,8 +660,10 @@
           <div class="stat-lbl">Mergers</div>
         </div>
       </div>
-      <div id="sTotal" style="color:#777;font-size:13px;text-align:center;margin-bottom:8px"></div>
-      <div id="sDevice" style="color:#555;font-size:12px;text-align:center;margin-bottom:16px"></div>
+      <div id="sTotal" style="color:var(--muted);font-size:13px;text-align:center;margin-bottom:6px"></div>
+      <div id="sDevice" style="color:var(--faint);font-family:var(--mono);font-size:11px;text-align:center;margin-bottom:14px"></div>
+      <button class="mbtn mbtn-secondary" onclick="copyRecoveryLink()">Copy recovery link</button>
+      <div id="recoverStatus" style="font-size:12px;color:var(--muted);text-align:center;margin:6px 0;min-height:16px"></div>
       <button class="mbtn mbtn-secondary" onclick="closeModal('stats')">Close</button>
     </div>
   </div>
@@ -833,16 +673,15 @@
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-handle"></div>
       <div class="modal-title">Export classifications</div>
-      <p style="font-size:13px;color:#888;margin-bottom:14px;line-height:1.55">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.55">
         Download the JSON and send it to your Mac (AirDrop, iCloud, etc.).
         Then import with:
       </p>
       <div class="code-blk">python pipeline/import_from_mobile.py &lt;file.json&gt;</div>
-      <div id="expStats" style="font-size:13px;color:#aaa;margin:12px 0"></div>
-      <button class="mbtn mbtn-primary"     onclick="doExport()">⬇&nbsp; Download JSON</button>
-      <button class="mbtn" id="syncBtn"
-              style="background:#1a5c3a;color:#fff;"
-              onclick="syncToCloud()">☁&nbsp; Sync to cloud</button>
+      <div id="expStats" style="font-size:13px;color:var(--muted);margin:12px 0"></div>
+      <button class="mbtn mbtn-primary"     onclick="doExport()">Download JSON</button>
+      <button class="mbtn mbtn-secondary" id="syncBtn"
+              onclick="syncToCloud()">Sync to cloud</button>
       <div id="syncStatus" style="font-size:13px;margin:6px 0;min-height:18px"></div>
       <button class="mbtn mbtn-secondary"   onclick="closeModal('export')">Cancel</button>
     </div>
@@ -852,18 +691,18 @@
   <div class="modal-back hidden" id="aliasModal">
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-handle"></div>
-      <div class="modal-title">👋 Welcome — pick a nickname</div>
-      <div style="font-size:13px;color:#aaa;margin-bottom:14px;line-height:1.55">
-        Your nickname is the only way to recover your progress on a new device or after clearing browser data.
-        <strong style="color:#f4c97a">Save it somewhere</strong> (note, screenshot, etc.).
+      <div class="modal-title">Welcome. Pick a nickname</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.55">
+        To continue on another device or after clearing browser data, use your recovery link:
+        open Progress → <strong style="color:var(--text)">Copy recovery link</strong> and save it somewhere (note, email, etc.).
       </div>
       <input id="aliasInput" type="text" maxlength="10" placeholder="3–10 letters/digits"
              autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"
-             style="width:100%;padding:12px;font-size:18px;background:#2a2a2a;border:1px solid #444;border-radius:8px;color:#eee;text-transform:uppercase;letter-spacing:2px;text-align:center;font-family:monospace;box-sizing:border-box">
-      <div id="aliasError" style="font-size:12px;color:#e57373;margin-top:8px;min-height:16px"></div>
+             style="width:100%;padding:12px;font-size:18px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--text);text-transform:uppercase;letter-spacing:2px;text-align:center;font-family:var(--mono);box-sizing:border-box">
+      <div id="aliasError" style="font-size:12px;color:var(--purple);margin-top:8px;min-height:16px"></div>
       <div style="display:flex;gap:8px;margin-top:14px">
-        <button onclick="_aliasUseRandom()" style="flex:1;padding:12px;background:#333;border:1px solid #444;border-radius:8px;color:#eee;font-size:14px;cursor:pointer">🎲 Random</button>
-        <button onclick="_aliasSubmit()" style="flex:2;padding:12px;background:#43a047;border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Continue</button>
+        <button class="mbtn mbtn-secondary" onclick="_aliasUseRandom()" style="flex:1;margin-top:0">Random</button>
+        <button class="mbtn mbtn-primary" onclick="_aliasSubmit()" style="flex:2;margin-top:0">Continue</button>
       </div>
     </div>
   </div>
@@ -882,6 +721,38 @@
         and for the time you gave to this project.
       </div>
       <button class="mbtn mbtn-primary" onclick="closeCompletionModal()">Done</button>
+    </div>
+  </div>
+
+  <!-- WELCOME MODAL (una vez, al cerrar el tutorial) -->
+  <div class="modal-back hidden" id="welcomeModal">
+    <div class="modal-sheet completion-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="ms-icon"><svg viewBox="0 0 24 24"><path d="M3.5 13.5l10-4.5 1.8 3.8-10 4.5z"/><path d="M13.5 9l3.2-1.4 1.8 3.8-3.2 1.4"/><path d="M18.6 7.4l1.5-.7 1.1 2.3-1.5.7"/><path d="M9.6 15.6l-2.4 5.4M10.4 15.3l2.8 5.7"/><circle cx="20" cy="3.5" r=".5"/><circle cx="16" cy="3" r=".4"/></svg></div>
+      <div class="completion-title">Ready, explorer?</div>
+      <div class="completion-copy">
+        <strong id="welcomeTotal">—</strong> galaxy systems are waiting for your eyes.
+        Each vote teaches our algorithm to tell real pairs from chance alignments.<br><br>
+        Go for the whole set: there are milestones waiting along the way!<br>
+        <span style="color:var(--faint);font-size:12px">Your progress is saved automatically.</span>
+      </div>
+      <button class="mbtn mbtn-primary" onclick="closeModal('welcome')">Let's go!</button>
+    </div>
+  </div>
+
+  <!-- MILESTONE MODAL (rachas: 25, 50, 100 y luego cada 200) -->
+  <div class="modal-back hidden" id="milestoneModal" onclick="closeModal('milestone')">
+    <div class="modal-sheet completion-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="ms-icon" id="msIcon"></div>
+      <div class="completion-title" id="msTitle" style="margin-bottom:0">Great start!</div>
+      <div class="milestone-num" id="msNum">25</div>
+      <div style="color:var(--muted);font-size:12px;margin:-4px 0 12px">systems classified</div>
+      <div class="completion-copy" id="msCopy"></div>
+      <div class="prog-wrap" style="height:3px;margin:0 0 16px">
+        <div class="prog-fill" id="msBar" style="transition:width 0.9s ease"></div>
+      </div>
+      <button class="mbtn mbtn-primary" onclick="closeModal('milestone')">Keep going →</button>
     </div>
   </div>
 
@@ -960,19 +831,82 @@
   // ═══════════════════════════════════════════════════════════════════════
   // DEVICE ID — generado una vez y guardado en localStorage
   // ═══════════════════════════════════════════════════════════════════════
+  // Token secreto del alias: lo entrega register_device una sola vez y lo exigen
+  // todas las RPC. Recuperación en otro dispositivo: enlace #ALIAS.token
+  const TOKEN_KEY = 'galpairs_device_token';
+  let deviceToken = '';
+
+  function _setIdentity(id, token) {
+    localStorage.setItem('galpairs_device_id', id);
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    deviceToken = token || '';
+  }
+
+  // → { token } | { error: 'taken' | 'busy' | 'offline' }
+  async function _registerDevice(alias) {
+    const url = window._SUPABASE_URL;
+    const key = window._SUPABASE_ANON_KEY;
+    if (!CLOUD_SYNC || !url || !key) return { error: 'offline' };
+    try {
+      const r = await fetch(`${url}/rest/v1/rpc/register_device`, {
+        method: 'POST',
+        headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_device_id: alias }),
+      });
+      if (r.ok) return { token: await r.json() };
+      const txt = await r.text();
+      if (txt.includes('alias_taken'))  return { error: 'taken' };
+      if (txt.includes('rate_limited')) return { error: 'busy' };
+      return { error: 'offline' };
+    } catch (_) {
+      return { error: 'offline' };
+    }
+  }
+
   async function getOrCreateDeviceId() {
-    const recovered = (window.location.hash || '').replace(/^#/, '').trim().toUpperCase();
-    if (/^[A-Z0-9_]{3,20}$/.test(recovered)) {
-      localStorage.setItem('galpairs_device_id', recovered);
+    const [hAlias, hToken] = (window.location.hash || '').replace(/^#/, '').trim().split('.');
+    const recovered = (hAlias || '').toUpperCase();
+    if (/^[A-Z0-9_]{3,20}$/.test(recovered) && /^[0-9a-f]{32}$/i.test(hToken || '')) {
+      _setIdentity(recovered, hToken.toLowerCase());
+      // Sacar el token de la barra de direcciones (capturas de pantalla, historial)
+      history.replaceState(null, '', window.location.pathname + window.location.search);
       return recovered;
     }
 
     let id = localStorage.getItem('galpairs_device_id');
-    if (id) return id;  // usuario existente — comportamiento actual, sin fricción
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (id && token) { deviceToken = token; return id; }
+
+    // Alias de campañas anteriores (sin token): intentar reclamarlo
+    if (id) {
+      const res = await _registerDevice(id);
+      if (res.token) { _setIdentity(id, res.token); return id; }
+      if (res.error !== 'taken') return id;  // sin red: sigue local, como antes
+    }
+
     // Usuario nuevo: pedir nickname (con opción "random")
-    id = await _promptForAlias();
-    localStorage.setItem('galpairs_device_id', id);
-    return id;
+    return await _promptForAlias();
+  }
+
+  function copyRecoveryLink() {
+    const el = document.getElementById('recoverStatus');
+    if (!deviceToken) {
+      el.textContent = 'No recovery link: this device is not registered online.';
+      return;
+    }
+    const link = `${window.location.origin}${window.location.pathname}#${deviceId}.${deviceToken}`;
+    const done = () => { el.textContent = '✓ Copied. Keep it private: it gives access to your votes.'; };
+    // Sin portapapeles (permiso denegado, webview): mostrar el enlace para copiarlo a mano
+    const show = () => {
+      el.style.userSelect = el.style.webkitUserSelect = 'all';
+      el.style.wordBreak = 'break-all';
+      el.textContent = link;
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(done, show);
+    } else {
+      show();
+    }
   }
 
   // Devuelve el alias elegido por el usuario (escrito o random). El modal cierra solo.
@@ -990,10 +924,24 @@
       // Limpia error mientras escribe
       input.oninput = () => { errEl.textContent = ''; };
 
-      window._aliasUseRandom = () => {
-        const id = Math.random().toString(36).substr(2, 5).toUpperCase();
+      const finish = (id, token) => {
+        _setIdentity(id, token);
         modal.classList.add('hidden');
         resolve(id);
+      };
+
+      window._aliasUseRandom = async () => {
+        errEl.style.color = '#9AA3B2';
+        errEl.textContent = 'Checking…';
+        for (let i = 0; i < 5; i++) {
+          const id = Math.random().toString(36).substr(2, 5).toUpperCase();
+          const res = await _registerDevice(id);
+          if (res.token) return finish(id, res.token);
+          if (res.error === 'offline') return finish(id, '');
+          if (res.error === 'busy') break;
+        }
+        errEl.style.color = '#9E9AC8';
+        errEl.textContent = 'Server busy, please try again in a minute';
       };
 
       window._aliasSubmit = async () => {
@@ -1002,21 +950,15 @@
           errEl.textContent = 'Use 3–10 letters or digits only';
           return;
         }
-        errEl.style.color = '#aaa';
+        errEl.style.color = '#9AA3B2';
         errEl.textContent = 'Checking…';
-        const exists = await _aliasExistsInSupabase(raw);
-        errEl.style.color = '#e57373';
-        if (exists) {
-          errEl.textContent = '';
-          const ok = confirm(
-            `The nickname "${raw}" is already in use.\n\n` +
-            `If it's YOURS (you used it before on another device or after clearing browser data), tap OK to recover your progress.\n\n` +
-            `If not, tap Cancel and pick a different one.`
-          );
-          if (!ok) { errEl.textContent = ''; return; }
-        }
-        modal.classList.add('hidden');
-        resolve(raw);
+        const res = await _registerDevice(raw);
+        errEl.style.color = '#9E9AC8';
+        if (res.token) return finish(raw, res.token);
+        if (res.error === 'offline') return finish(raw, '');  // sin red: sigue local
+        errEl.textContent = res.error === 'taken'
+          ? 'Nickname taken. If it is yours, open your recovery link.'
+          : 'Server busy, please try again in a minute';
       };
 
       input.onkeydown = e => {
@@ -1025,6 +967,8 @@
     });
   }
 
+  // Reemplazado por register_device (anon ya no lee la tabla partitions).
+  /*
   async function _aliasExistsInSupabase(alias) {
     try {
       const url = window._SUPABASE_URL;
@@ -1040,6 +984,7 @@
       return false;  // si la red falla, asumimos nuevo (no bloqueamos al usuario)
     }
   }
+  */
 
   // ═══════════════════════════════════════════════════════════════════════
   // SEEDED PRNG (Mulberry32) — shuffle reproducible por dispositivo
@@ -1321,9 +1266,9 @@
 
     const _warnTimer = setTimeout(() => {
       overlay.innerHTML = `<div class="spinner"></div>
-        <div style="color:#ffaa44;font-size:13px;margin-top:8px">
+        <div style="color:var(--muted);font-size:13px;margin-top:10px;text-align:center">
           Slow image… skipping in <span id="cdCount">${_remaining}</span>s
-          <br><button class="retry-btn" style="margin-top:6px" onclick="retryImage()">↻ Keep waiting</button>
+          <br><button class="retry-btn" style="margin-top:6px" onclick="retryImage()">Keep waiting</button>
         </div>`;
       _countdownTimer = setInterval(() => {
         _remaining--;
@@ -1380,7 +1325,8 @@
   function _prefetch(currentIdx) {
     // Ventana adaptativa conservadora para no provocar rate limits en Legacy Survey.
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const fast = conn ? ['4g', 'wifi'].includes(conn.effectiveType) : false;
+    // Safari (iPhone) no expone navigator.connection: se asume conexión rápida
+    const fast = conn ? ['4g', 'wifi'].includes(conn.effectiveType) : true;
     const window_ = fast ? 3 : 1;
 
     for (let d = 1; d <= window_; d++) {
@@ -1437,8 +1383,8 @@
                 DEC <strong>${item.dec_center.toFixed(4)}</strong></span>
         </div>
         <div class="info-row" style="margin-top:3px;font-size:11px">
-          <span>z_center = <strong style="color:#a8d4ff">${z}</strong></span>
-          <span style="color:#555">double tap → Sky Viewer</span>
+          <span>z_center = <strong>${z}</strong></span>
+          <span style="color:var(--faint)">double tap → Sky Viewer</span>
         </div>
         ${_badge(cl, true)}`;
     } else {
@@ -1465,16 +1411,16 @@
                 &nbsp;DEC <strong>${item.dec2.toFixed(4)}</strong></span>
         </div>
         ${item.pair_type ? `<div class="info-row" style="margin-top:2px;font-size:11px">
-          <span style="color:#888">pair type: <strong style="color:#bbb">${item.pair_type}</strong></span>
+          <span>pair type: <strong>${item.pair_type}</strong></span>
         </div>` : ''}
         <div class="info-row" style="margin-top:4px;font-size:11px">
           <span style="color:#ff7a6a">z₁=<strong style="color:#ffb3a8">${z1}</strong></span>
           <span style="color:#55aaff">z₂=<strong style="color:#a8d4ff">${z2}</strong></span>
-          <span style="color:#555">double tap → Sky Viewer</span>
+          <span style="color:var(--faint)">double tap → Sky Viewer</span>
         </div>
         ${item.fof_component_id !== undefined && item.component_size >= 3
           ? `<div class="info-row" style="margin-top:4px;font-size:11px">
-               <span style="color:#4488cc">&#128101; Grupo <strong>#${item.fof_component_id}</strong> &mdash; N=<strong>${item.component_size}</strong></span>
+               <span style="color:var(--blue)">Group <strong>#${item.fof_component_id}</strong> &mdash; N=<strong>${item.component_size}</strong></span>
              </div>`
           : ''}
         ${_badge(cl, false)}`;
@@ -1486,7 +1432,7 @@
 
   function _badge(cl, forGroup) {
     if (!cl) return '';
-    const colors = { FP: '#ef9a9a', Pair: '#a5d6a7', GROUP: '#64b5f6', PM: '#ffcc80', PP: '#4dccaa' };
+    const colors = { FP: '#9E9AC8', Pair: '#4292C6', GROUP: '#4292C6', PM: '#E6E9EF', PP: '#E6E9EF' };
     const labels = { FP: forGroup ? 'NonGroup' : 'NonPair', Pair: 'Confirmed Pair', GROUP: 'Confirmed Group', PM: 'Possible Merger', PP: 'Possible Pair' };
     return `<div class="cl-badge" style="color:${colors[cl]||'#aaa'}">✓ ${labels[cl]||cl}</div>`;
   }
@@ -1494,26 +1440,26 @@
   function _updateButtons(cl, item) {
     const fpBtn = document.getElementById('btnFP');
     fpBtn.innerHTML = isGroup(item)
-      ? '<span class="ic">❌</span><span>NonGroup</span><span class="lbl">NG</span>'
-      : '<span class="ic">❌</span><span>NonPair</span><span class="lbl">NP</span>';
+      ? '<span>NonGroup</span><span class="lbl">NG</span>'
+      : '<span>NonPair</span><span class="lbl">NP</span>';
     fpBtn.className = 'btn-cl' + (cl === 'FP' ? ' a-fp' : '');
 
     const midBtn = document.getElementById('btnPair');
     const pmBtn  = document.getElementById('btnPM');
 
     if (isGroup(item)) {
-      midBtn.innerHTML = '<span class="ic">⭐</span><span>Group</span><span class="lbl">G</span>';
+      midBtn.innerHTML = '<span>Group</span><span class="lbl">G</span>';
       midBtn.onclick   = () => classify('GROUP');
       midBtn.className = 'btn-cl' + (cl === 'GROUP' ? ' a-group' : '');
       // Botón derecho = Possible Pair en grupos
-      pmBtn.innerHTML  = '<span class="ic">👥</span><span>Poss.Pair</span><span class="lbl">PP</span>';
+      pmBtn.innerHTML  = '<span>Poss.Pair</span><span class="lbl">PP</span>';
       pmBtn.onclick    = () => classify('PP');
       pmBtn.className  = 'btn-cl' + (cl === 'PP' ? ' a-group' : '');
     } else {
-      midBtn.innerHTML = '<span class="ic">✅</span><span>Pair</span><span class="lbl">P</span>';
+      midBtn.innerHTML = '<span>Pair</span><span class="lbl">P</span>';
       midBtn.onclick   = () => classify('Pair');
       midBtn.className = 'btn-cl' + (cl === 'Pair' ? ' a-pair' : '');
-      pmBtn.innerHTML  = '<span class="ic">🔀</span><span>Merger</span><span class="lbl">PM</span>';
+      pmBtn.innerHTML  = '<span>Merger</span><span class="lbl">PM</span>';
       pmBtn.onclick    = () => classify('PM');
       pmBtn.className  = 'btn-cl' + (cl === 'PM' ? ' a-pm' : '');
     }
@@ -1550,6 +1496,8 @@
     if (_countDone() >= catalog.length) {
       if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
       setTimeout(_showCompletionMessage, 250);
+    } else if (classifications[k]) {
+      setTimeout(_showMilestone, 750);  // después del auto-avance (650 ms)
     }
 
   }
@@ -1596,6 +1544,70 @@
     if (modal) modal.classList.remove('hidden');
   }
 
+  // ── Rachas: 25, 50, 100 y luego cada 200 (una vez por alias y versión) ──
+  // Íconos de línea, un solo color (stroke = currentColor)
+  const MS_ICONS = {
+    pair:   '<ellipse cx="8.5" cy="12.5" rx="5" ry="3" transform="rotate(-20 8.5 12.5)"/><ellipse cx="16.3" cy="11" rx="4" ry="2.4" transform="rotate(15 16.3 11)"/><path d="M12.6 11.4c.8-.6 1.5-.6 2.1-.3"/>',
+    lens:   '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/><ellipse cx="10.5" cy="10.5" rx="2.6" ry="1.4" transform="rotate(-25 10.5 10.5)"/>',
+    comet:  '<circle cx="16.5" cy="7.5" r="3"/><path d="M14.3 9.7L4 20M13.2 7.6L5.5 12.6M16.4 10.8l-4.8 7"/>',
+    planet: '<circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="10" ry="3.2" transform="rotate(-20 12 12)"/>',
+    star:   '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7z"/>',
+    spiral: '<path d="M12 12c0-1.4 2-1.4 2 0s-2 3-4 2-2.2-4.8 1-5.8 7 1 7 5-4.2 7-8.2 6-6.8-5-4.8-9"/>',
+  };
+  const MILESTONES = {
+    25:  ['pair',   'Great start!',   'Your eye is already tuning in to tidal tails and bridges.'],
+    50:  ['lens',   'Sharp eyes!',    "You're spotting details most people would miss."],
+    100: ['comet',  'Triple digits!', "That's a real contribution to the training set."],
+    200: ['planet', 'Unstoppable!',   'The Random Forest is learning from you.'],
+  };
+  const MILESTONE_CYCLE = [
+    ['star',   'Galaxy hunter!',      'Every vote sharpens the catalogue.'],
+    ['spiral', 'Deep-field veteran!', 'Few people have looked at this many systems.'],
+    ['pair',   'Pair whisperer!',     'Interacting galaxies have no secrets for you.'],
+    ['comet',  'Cosmic streak!',      'Nothing can stop you now.'],
+  ];
+
+  function _milestoneFor(n) {
+    if (MILESTONES[n]) return MILESTONES[n];
+    if (n > 200 && n % 200 === 0) return MILESTONE_CYCLE[(n / 200 - 2) % MILESTONE_CYCLE.length];
+    return null;
+  }
+
+  // El número sube contando desde 0 (≈0,7 s)
+  function _countUp(el, target) {
+    const t0 = performance.now();
+    const step = now => {
+      const f = Math.min(1, (now - t0) / 700);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - f, 3))).toLocaleString('en-US');
+      if (f < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function _showMilestone() {
+    const done = _countDone();
+    const m = _milestoneFor(done);
+    if (!m || done >= catalog.length) return;
+    const key = `galpairs_milestone_${deviceId || 'anon'}_${CATALOG_VERSION}_${done}`;
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    const [icon, title, line] = m;
+    const left = catalog.length - done;
+    const leftTxt = left.toLocaleString('en-US');
+    document.getElementById('msIcon').innerHTML = `<svg viewBox="0 0 24 24">${MS_ICONS[icon]}</svg>`;
+    document.getElementById('msTitle').textContent = title;
+    document.getElementById('msCopy').innerHTML = `${line}<br>` + (left <= 200
+      ? `Only <strong>${leftTxt}</strong> to go. The finish line is in sight!`
+      : `<strong>${leftTxt}</strong> to go. Keep the streak alive!`);
+    const bar = document.getElementById('msBar');
+    bar.style.width = '0%';
+    openModal('milestone');
+    _countUp(document.getElementById('msNum'), done);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      bar.style.width = `${(done / catalog.length * 100).toFixed(1)}%`;
+    }));
+  }
+
   function closeCompletionModal() {
     const modal = document.getElementById('completionModal');
     if (modal) modal.classList.add('hidden');
@@ -1615,10 +1627,9 @@
     overlay.style.display = 'flex';
     overlay.innerHTML = `
       <div class="err-state">
-        <div class="err-icon">⚠️</div>
         <div>${title}</div>
-        <div style="font-size:12px;color:#888;margin-top:6px;line-height:1.35">${detail}</div>
-        <button class="retry-btn" onclick="retryImage()">↻ Retry cutout</button>
+        <div style="font-size:12px;color:var(--faint);margin-top:6px;line-height:1.35">${detail}</div>
+        <button class="retry-btn" onclick="retryImage()">Retry cutout</button>
         <button class="retry-btn" onclick="openSkyViewer()">Open Sky Viewer</button>
         <button class="retry-btn" onclick="skipImageOnly()">Skip for now</button>
       </div>`;
@@ -1722,7 +1733,7 @@
   async function loadCloudStateForDevice(devId, basePairs = []) {
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
-    if (!CLOUD_SYNC || !url || !key || !devId) return;
+    if (!CLOUD_SYNC || !url || !key || !devId || !deviceToken) return;
 
     const cloud = {};
     const limit = 1000;
@@ -1736,7 +1747,7 @@
           'Authorization': `Bearer ${key}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ p_device_id: devId, p_catalog_version: CATALOG_VERSION }),
+        body: JSON.stringify({ p_device_id: devId, p_token: deviceToken, p_catalog_version: CATALOG_VERSION }),
       });
       if (rpcResp.ok) {
         const rows = await rpcResp.json();
@@ -1750,6 +1761,8 @@
         return;
       }
 
+      // Respaldo por lectura directa de la tabla: anon ya no tiene SELECT.
+      /*
       while (true) {
         const resp = await fetch(
           `${url}/rest/v1/clasificaciones?device_id=eq.${encodeURIComponent(devId)}` +
@@ -1774,6 +1787,7 @@
       }
       classifications = { ...cloud, ...classifications };
       saveState(true);
+      */
     } catch (_) {}
   }
 
@@ -1820,7 +1834,7 @@
     // state: 'saving' | 'ok' | 'error'
     const dot = document.getElementById('syncDot');
     if (!dot) return;
-    dot.style.background = state === 'ok' ? '#4dccaa' : state === 'error' ? '#ef5350' : '#ffaa44';
+    dot.style.background = state === 'ok' ? '#4292C6' : state === 'error' ? '#9E9AC8' : '#5B6475';
     dot.title = state === 'ok' ? 'Cloud: saved' : state === 'error' ? 'Cloud: error — saved locally' : 'Cloud: saving…';
   }
 
@@ -1832,6 +1846,7 @@
       _setSyncDot('ok');
       return;
     }
+    if (!deviceToken) { _setSyncDot('error'); return; }
     const row = cloudRowForItem(item, classification);
     _setSyncDot('saving');
     fetch(`${url}/rest/v1/rpc/upsert_classification`, {
@@ -1842,6 +1857,7 @@
       },
       body: JSON.stringify({
         p_device_id: row.device_id,
+        p_token: deviceToken,
         p_item_type: row.item_type,
         p_item_uid: row.item_uid,
         p_pair_uid: row.pair_uid,
@@ -1862,7 +1878,7 @@
   function _deleteFromCloud(item) {
     const url = window._SUPABASE_URL;
     const key = window._SUPABASE_ANON_KEY;
-    if (!url || !key || !CLOUD_SYNC) return;
+    if (!url || !key || !CLOUD_SYNC || !deviceToken) return;
     fetch(`${url}/rest/v1/rpc/delete_classification`, {
       method: 'POST',
       headers: {
@@ -1871,6 +1887,7 @@
       },
       body: JSON.stringify({
         p_device_id: deviceId,
+        p_token: deviceToken,
         p_item_type: itemType(item),
         p_item_uid: itemUid(item),
         p_catalog_version: CATALOG_VERSION,
@@ -1887,20 +1904,25 @@
     const btn      = document.getElementById('syncBtn');
 
     if (!url || !key) {
-      statusEl.style.color = '#ef9a9a';
+      statusEl.style.color = '#9E9AC8';
       statusEl.textContent = '✗ Sin conexión configurada (regenera el HTML).';
+      return;
+    }
+    if (!deviceToken) {
+      statusEl.style.color = '#9E9AC8';
+      statusEl.textContent = '✗ This device is not registered online.';
       return;
     }
 
     const entries = Object.entries(classifications);
     if (!entries.length) {
-      statusEl.style.color = '#aaa';
+      statusEl.style.color = '#9AA3B2';
       statusEl.textContent = 'No local classifications to sync.';
       return;
     }
 
     btn.disabled = true;
-    statusEl.style.color = '#aaa';
+    statusEl.style.color = '#9AA3B2';
     statusEl.textContent = `Sending ${entries.length} classifications…`;
 
     // Build catalog lookup for stable item_uid resolution.
@@ -1914,7 +1936,7 @@
     }).filter(Boolean);
 
     if (!rows.length) {
-      statusEl.style.color = '#aaa';
+      statusEl.style.color = '#9AA3B2';
       statusEl.textContent = 'No classifications from the current catalog to sync.';
       btn.disabled = false;
       return;
@@ -1927,19 +1949,19 @@
           'apikey': key, 'Authorization': `Bearer ${key}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ p_rows: rows })
+        body: JSON.stringify({ p_device_id: deviceId, p_token: deviceToken, p_rows: rows })
       });
 
       if (!resp.ok) {
         const txt = await resp.text();
-        statusEl.style.color = '#ef9a9a';
+        statusEl.style.color = '#9E9AC8';
         statusEl.textContent = `✗ Error ${resp.status}: ${txt.slice(0, 80)}`;
         return;
       }
-      statusEl.style.color = '#a5d6a7';
+      statusEl.style.color = '#4292C6';
       statusEl.textContent = `✓ ${rows.length} classifications synced.`;
     } catch (err) {
-      statusEl.style.color = '#ef9a9a';
+      statusEl.style.color = '#9E9AC8';
       statusEl.textContent = `✗ Sin conexión: ${err.message}`;
     } finally { btn.disabled = false; }
   }
@@ -2069,7 +2091,7 @@
   async function getOrCreatePartition(devId) {
     const url  = window._SUPABASE_URL;
     const key  = window._SUPABASE_ANON_KEY;
-    if (!url || !key) return null;
+    if (!url || !key || !deviceToken) return null;
 
     const headers = {
       'apikey':        key,
@@ -2083,14 +2105,10 @@
         method:  'POST',
         headers,
         body: JSON.stringify({
+          // Tamaños de bloque fijos en el servidor (migration_sochias_security.sql)
           p_device_id:        devId,
+          p_token:            deviceToken,
           p_calib_seed:       Math.floor(Math.random() * 1_000_000),
-          p_block_size:       BLOCK_SIZE,
-          p_calib_size:       CALIB_SIZE,
-          p_group_block_size: GROUP_BLOCK_SIZE,
-          p_group_calib_size: CALIB_GROUPS,
-          p_v1_max_idx:       ((window._CATALOG && window._CATALOG.n_pairs_v1)  || 10992),
-          p_v2_max_idx:       ((window._CATALOG && window._CATALOG.total_pairs) || 18526),
           p_catalog_version:  CATALOG_VERSION,
         }),
       });
@@ -2100,7 +2118,11 @@
         if (row && row.device_id) return row;
       }
     } catch (_) {}
+    return null;
 
+    // Respaldos sin token (assign_partition y escritura directa a la tabla):
+    // anon ya no tiene permiso para ninguno de los dos.
+    /*
     // Fallback RPC with the compact partition contract.
     try {
       const r = await fetch(`${url}/rest/v1/rpc/assign_partition`, {
@@ -2164,11 +2186,41 @@
     } catch (_) {}
 
     return partition;
+    */
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   // INIT
   // ═══════════════════════════════════════════════════════════════════════
+  // Catálogo compacto (build_sochias.py): columnas en vez de objetos y sin
+  // display_id, ra_mid, dec_mid, que se reconstruyen aquí.
+  function _expandCatalog(data) {
+    const rows = cols => {
+      const keys = Object.keys(cols);
+      const n = keys.length ? cols[keys[0]].length : 0;
+      const out = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const o = {};
+        for (const k of keys) o[k] = cols[k][i];
+        out[i] = o;
+      }
+      return out;
+    };
+    if (data.pairs_cols) {
+      data.pairs = rows(data.pairs_cols).map((p, i) => {
+        p.display_id = i + 1;
+        p.ra_mid  = (p.ra1 + p.ra2) / 2;
+        p.dec_mid = (p.dec1 + p.dec2) / 2;
+        return p;
+      });
+      delete data.pairs_cols;
+    }
+    if (data.groups_cols) {
+      data.groups = rows(data.groups_cols);
+      delete data.groups_cols;
+    }
+  }
+
   async function init() {
     loadState();
 
@@ -2182,15 +2234,18 @@
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         data = await resp.json();
       }
+      _expandCatalog(data);
 
       const basePairs  = data.pairs  || [];
       const baseGroups = data.groups || [];
       desktopCl = data.desktop_classified || {};
       deviceId  = await getOrCreateDeviceId();
-      await loadCloudStateForDevice(deviceId, basePairs);
 
-      // ── Obtener/crear partición desde Supabase ───────────────────────
-      const partition = await getOrCreatePartition(deviceId);
+      // ── Votos previos + partición en paralelo (independientes) ───────
+      const [, partition] = await Promise.all([
+        loadCloudStateForDevice(deviceId, basePairs),
+        getOrCreatePartition(deviceId),
+      ]);
 
       const seed = partition ? partition.calib_seed : strToSeed(deviceId);
 
@@ -2264,6 +2319,15 @@
         ...calibSuppPairsShuffled,
         ...interleave(workPairs,            workGroups),
       ];
+      // Demo (sochias): primero el bloque propio, para que cada persona vea
+      // sistemas distintos desde el inicio; la calibración común va al final.
+      if (window._CATALOG && window._CATALOG.work_first) {
+        catalog = [
+          ...interleave(workPairs,            workGroups),
+          ...interleave(calibPairs,           calibGroups),
+          ...calibSuppPairsShuffled,
+        ];
+      }
 
       if (!catalog.length) { showNoCatalog(); return; }
       if (currentIndex >= catalog.length) currentIndex = 0;
@@ -2279,6 +2343,7 @@
 
       // Mostrar tutorial la primera vez
       if (!localStorage.getItem(TUT_KEY)) openTutorial();
+      else _maybeShowWelcome();  // ya vio el tutorial en otra campaña
 
     } catch(err) {
       console.error('Catalog load error:', err);
@@ -2290,7 +2355,7 @@
   // TUTORIAL
   // ═══════════════════════════════════════════════════════════════════════
   const TUT_KEY    = 'gpi_tutorial_done_v1';
-  const TUT_SLIDES = 8;   // número de slides
+  const TUT_SLIDES = 9;   // número de slides
 
   function openTutorial() {
     const overlay = document.getElementById('tutorialOverlay');
@@ -2324,11 +2389,9 @@
       d.classList.toggle('active', i === idx));
     const btn = document.getElementById('tutNextBtn');
     if (idx >= TUT_SLIDES - 1) {
-      btn.textContent = 'Start classifying ✓';
-      btn.style.background = '#1a5c2a';
+      btn.textContent = 'Start classifying';
     } else {
       btn.textContent = 'Next →';
-      btn.style.background = '#2a4a80';
     }
   }
 
@@ -2342,9 +2405,20 @@
     }
   }
 
+  const WELCOME_KEY = `galpairs_welcome_shown_${CATALOG_VERSION}`;
+
   function closeTutorial() {
     document.getElementById('tutorialOverlay').style.display = 'none';
     localStorage.setItem(TUT_KEY, '1');
+    _maybeShowWelcome();
+  }
+
+  // Mensaje de bienvenida: una sola vez por versión, tras el tutorial
+  function _maybeShowWelcome() {
+    if (!catalog.length || localStorage.getItem(WELCOME_KEY) === '1') return;
+    localStorage.setItem(WELCOME_KEY, '1');
+    document.getElementById('welcomeTotal').textContent = catalog.length.toLocaleString('en-US');
+    openModal('welcome');
   }
 
   function showNoCatalog() {
